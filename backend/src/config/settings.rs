@@ -146,6 +146,12 @@ impl Settings {
     }
 
     pub fn validate_security(&self) -> Result<(), AppError> {
+        if self.mongodb.database.trim().is_empty() {
+            return Err(AppError::Internal(
+                "MONGODB_DATABASE must not be empty".to_string(),
+            ));
+        }
+
         if self.jwt.access_token_ttl <= 0 || self.jwt.refresh_token_ttl <= 0 {
             return Err(AppError::Internal(
                 "JWT token TTL values must be positive".to_string(),
@@ -222,7 +228,10 @@ fn apply_env_overrides(settings: &mut Settings) {
         settings.mongodb.uri = val;
     }
     if let Ok(val) = env::var("MONGODB_DATABASE") {
-        settings.mongodb.database = val;
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            settings.mongodb.database = trimmed.to_string();
+        }
     }
 
     if let Ok(val) = env::var("JWT_ISSUER") {

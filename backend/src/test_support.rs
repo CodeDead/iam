@@ -86,12 +86,16 @@ impl UserRepository for InMemoryUserRepository {
                     return false;
                 }
                 if let Some(ref search) = filter.search {
-                    let s = search.trim().to_lowercase();
-                    if !s.is_empty()
-                        && !u.email.to_lowercase().contains(&s)
-                        && !u.first_name.to_lowercase().contains(&s)
-                        && !u.last_name.to_lowercase().contains(&s)
-                    {
+                    let email_lower = u.email.to_lowercase();
+                    let first_lower = u.first_name.to_lowercase();
+                    let last_lower = u.last_name.to_lowercase();
+                    let matches_all = search.split_whitespace().take(10).all(|term| {
+                        let t = term.to_lowercase();
+                        email_lower.contains(&t)
+                            || first_lower.contains(&t)
+                            || last_lower.contains(&t)
+                    });
+                    if !matches_all {
                         return false;
                     }
                 }

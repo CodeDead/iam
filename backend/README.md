@@ -17,6 +17,7 @@ REST API backend for **CodeDead IAM**, targeting **Rust Edition 2024 (`rustc 1.1
 
 ```bash
 cp .env.example .env
+# Optionally customize MONGODB_URI and MONGODB_DATABASE (defaults to user_management) in .env
 cargo run
 ```
 

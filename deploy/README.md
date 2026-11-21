@@ -16,7 +16,7 @@ This directory contains production deployment templates for running **CodeDead I
    openssl pkey -in jwt_private.pem -pubout -out jwt_public.pem
    ```
    In **Portainer → Secrets**, create external secrets named `codedead_jwt_private_pem` and `codedead_jwt_public_pem`.
-3. **Configure MongoDB Atlas**: Create a database user with `readWrite` on `user_management` and whitelist your Swarm node public IP(s) under **Network Access**.
+3. **Configure MongoDB Atlas**: Create a database user with `readWrite` on your configured `MONGODB_DATABASE` (defaults to `user_management`) and whitelist your Swarm node public IP(s) under **Network Access**.
 4. **Deploy stack in Portainer**: Go to **Stacks → Add stack**, paste `swarm-stack.yml`, populate the variables from `portainer.env.example`, and click **Deploy the stack**.
 5. **Post-deploy**: Sign in with the bootstrap Super Administrator, rotate the password via **My Profile**, and remove `BOOTSTRAP_SUPER_ADMIN_PASSWORD` from the stack environment variables.
 

@@ -45,11 +45,11 @@ Checklist:
 - Use automated daily backups with point-in-time recovery (oplog).
 - Verify startup logs confirm: `MongoDB replica set / sharded cluster detected: multi-document transactions enabled`.
 
-Example production URI:
+Example production URI and database configuration (`MONGODB_DATABASE` can be set to any database name; ensure your MongoDB user has `readWrite` permissions on that database):
 
 ```env
 MONGODB_URI=mongodb+srv://app_user:STRONG_SECRET@cluster0.example.mongodb.net/?retryWrites=true&w=majority&tls=true
-MONGODB_DATABASE=user_management
+MONGODB_DATABASE=codedead_iam
 ```
 
 ---

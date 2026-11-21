@@ -219,7 +219,7 @@ async fn user_crud_authorization_disabled_account_and_privilege_escalation_rules
     .await;
     assert_eq!(login_disabled.status(), StatusCode::FORBIDDEN);
 
-    // Pagination, search & status filter
+    // Pagination, search & status filter (including full "first last" name search)
     let list_resp = test::call_service(
         &app,
         test::TestRequest::get()
@@ -232,6 +232,34 @@ async fn user_crud_authorization_disabled_account_and_privilege_escalation_rules
     let list_body: Value = test::read_body_json(list_resp).await;
     assert_eq!(list_body["data"]["total"], 1);
     assert_eq!(list_body["data"]["items"][0]["email"], "regular@test.local");
+
+    let full_name_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/users?search=Regular%20User")
+            .insert_header(("Authorization", format!("Bearer {sa_token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(full_name_resp.status(), StatusCode::OK);
+    let full_name_body: Value = test::read_body_json(full_name_resp).await;
+    assert_eq!(full_name_body["data"]["total"], 1);
+    assert_eq!(
+        full_name_body["data"]["items"][0]["email"],
+        "regular@test.local"
+    );
+
+    let mismatch_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/users?search=Regular%20Nonexistent")
+            .insert_header(("Authorization", format!("Bearer {sa_token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(mismatch_resp.status(), StatusCode::OK);
+    let mismatch_body: Value = test::read_body_json(mismatch_resp).await;
+    assert_eq!(mismatch_body["data"]["total"], 0);
 
     // Profile endpoints: cannot mass-assign roles or status
     let profile_mass_assign = test::call_service(

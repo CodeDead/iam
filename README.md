@@ -249,7 +249,8 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 | --- | --- | --- |
 | `APP_ENV` | `development` | `development` or `production` (production requires PEM keys & `COOKIE_SECURE=true`) |
 | `SERVER_HOST` / `SERVER_PORT` | `127.0.0.1` / `8080` | Bind host and port |
-| `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `user_management` | MongoDB connection URI and database name |
+| `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection URI (standalone, replica set, or Atlas `mongodb+srv://`) |
+| `MONGODB_DATABASE` | `user_management` | Configurable target MongoDB database name (override via `.env`, `docker-compose.yml`, or Portainer stack env) |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `user-management-api` / `user-management-client` | JWT `iss` and `aud` validation claims |
 | `JWT_ACCESS_TOKEN_TTL` / `JWT_REFRESH_TOKEN_TTL` | `900` / `604800` | Token lifetimes in seconds (15 min / 7 days) |
 | `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(empty in dev)* | Ed25519 PKCS#8/SPKI PEM key paths (mandatory in production) |

@@ -1,6 +1,6 @@
 # MongoDB Schema, Indexes & Migrations
 
-This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)).
+This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)) inside the database configured via `MONGODB_DATABASE` (defaults to `user_management`).
 
 BSON Data Access Objects (DAOs) and repository implementations live under [`src/repository/`](../src/repository/):
 - `src/repository/user/{user_repository.rs, dao/user.rs}`

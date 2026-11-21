@@ -75,24 +75,7 @@ impl UserRepository for MongoUserRepository {
     }
 
     async fn find_all(&self, filter: &UserFilter) -> Result<(Vec<User>, u64), AppError> {
-        let mut query = Document::new();
-        if let Some(status) = filter.status {
-            query.insert("status", status.as_str());
-        }
-        if let Some(ref search) = filter.search {
-            let trimmed = search.trim();
-            if !trimmed.is_empty() {
-                let escaped = regex_escape(trimmed);
-                query.insert(
-                    "$or",
-                    vec![
-                        doc! { "email": { "$regex": &escaped, "$options": "i" } },
-                        doc! { "first_name": { "$regex": &escaped, "$options": "i" } },
-                        doc! { "last_name": { "$regex": &escaped, "$options": "i" } },
-                    ],
-                );
-            }
-        }
+        let query = build_user_filter_query(filter);
 
         let total = self.collection.count_documents(query.clone()).await?;
         let sort_field = match filter.sort_by.as_str() {
@@ -159,5 +142,75 @@ impl UserRepository for MongoUserRepository {
             .collection
             .count_documents(doc! { "status": status.as_str() })
             .await?)
+    }
+}
+
+const MAX_SEARCH_TERMS: usize = 10;
+
+pub(crate) fn build_user_filter_query(filter: &UserFilter) -> Document {
+    let mut query = Document::new();
+    if let Some(status) = filter.status {
+        query.insert("status", status.as_str());
+    }
+    if let Some(ref search) = filter.search {
+        let terms: Vec<&str> = search.split_whitespace().take(MAX_SEARCH_TERMS).collect();
+        match terms.as_slice() {
+            [] => {}
+            [single] => {
+                let escaped = regex_escape(single);
+                query.insert(
+                    "$or",
+                    vec![
+                        doc! { "email": { "$regex": &escaped, "$options": "i" } },
+                        doc! { "first_name": { "$regex": &escaped, "$options": "i" } },
+                        doc! { "last_name": { "$regex": &escaped, "$options": "i" } },
+                    ],
+                );
+            }
+            multi => {
+                let term_clauses: Vec<Document> = multi
+                    .iter()
+                    .map(|term| {
+                        let escaped = regex_escape(term);
+                        doc! {
+                            "$or": [
+                                { "email": { "$regex": &escaped, "$options": "i" } },
+                                { "first_name": { "$regex": &escaped, "$options": "i" } },
+                                { "last_name": { "$regex": &escaped, "$options": "i" } },
+                            ]
+                        }
+                    })
+                    .collect();
+                query.insert("$and", term_clauses);
+            }
+        }
+    }
+    query
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_multi_term_and_query_for_full_name_search() {
+        let filter = UserFilter {
+            search: Some("  John   Doe  ".to_string()),
+            ..Default::default()
+        };
+        let query = build_user_filter_query(&filter);
+        let and_clauses = query.get_array("$and").ok();
+        assert_eq!(and_clauses.map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn builds_single_or_query_for_single_term_search() {
+        let filter = UserFilter {
+            search: Some("John".to_string()),
+            ..Default::default()
+        };
+        let query = build_user_filter_query(&filter);
+        assert!(query.contains_key("$or"));
+        assert!(!query.contains_key("$and"));
     }
 }
