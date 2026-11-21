@@ -252,6 +252,22 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
     });
 
     expect(await screen.findByRole('heading', { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.getByRole('main')).toBeInTheDocument();
     expect(authService.refresh).not.toHaveBeenCalled();
+  });
+
+  it('renders a main landmark on standalone status pages', async () => {
+    const { unmount } = renderWithProviders(<AppRoutes />, {
+      initialEntries: ['/unauthorized'],
+      initialSession: null,
+    });
+    expect(await screen.findByRole('main')).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<AppRoutes />, {
+      initialEntries: ['/forbidden'],
+      initialSession: null,
+    });
+    expect(await screen.findByRole('main')).toBeInTheDocument();
   });
 });

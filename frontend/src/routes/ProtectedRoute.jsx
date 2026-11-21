@@ -10,7 +10,7 @@ export function ProtectedRoute({ children, requiredPermission, anyPermissions, a
 
   if (isLoading) {
     return (
-      <Center mih="60vh">
+      <Center component="main" mih="60vh">
         <Stack align="center" gap="sm">
           <Loader size="md" />
           <Text size="sm" c="dimmed">

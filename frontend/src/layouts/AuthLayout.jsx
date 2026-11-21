@@ -22,7 +22,7 @@ export function AuthLayout() {
 
   return (
     <Box mih="100vh" bg="var(--mantine-color-body)" py="md" px="md">
-      <Group justify="flex-end">
+      <Group component="header" justify="flex-end">
         <Tooltip label="Toggle color scheme">
           <ActionIcon
             variant="default"
@@ -34,7 +34,7 @@ export function AuthLayout() {
           </ActionIcon>
         </Tooltip>
       </Group>
-      <Center mih="calc(100vh - 96px)">
+      <Center component="main" mih="calc(100vh - 96px)">
         <Container size={440} w="100%">
           <Group justify="center" mb="lg" gap="xs">
             <ThemeIcon size="lg" radius="md" color="indigo">

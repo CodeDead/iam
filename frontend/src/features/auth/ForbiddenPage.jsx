@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 export function ForbiddenPage() {
   const navigate = useNavigate();
   return (
-    <Center mih="70vh">
+    <Center component="main" mih="70vh">
       <Paper withBorder p="xl" radius="md" maw={440} w="100%">
         <Stack align="center" ta="center" gap="md">
           <ThemeIcon size={56} radius="xl" color="red" variant="light">

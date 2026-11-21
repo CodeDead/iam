@@ -10,6 +10,7 @@ ARG VITE_API_BASE_URL=http://localhost:8080/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 COPY index.html vite.config.js postcss.config.cjs ./
+COPY public ./public
 COPY src ./src
 
 RUN npm run build
