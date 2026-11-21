@@ -1,0 +1,134 @@
+version: "3.8"
+
+# Production Docker Swarm / Portainer Stack for CodeDead IAM with MongoDB Atlas (Free M0 or higher).
+#
+# Prerequisites in Portainer:
+#   1. Create external Docker Swarm secrets:
+#        - codedead_jwt_private_pem  (Ed25519 PKCS#8 private key PEM)
+#        - codedead_jwt_public_pem   (Ed25519 SPKI public key PEM)
+#   2. Ensure the external overlay network (default: proxy) exists and is attached to your reverse proxy.
+#   3. Load variables from deploy/portainer.env.example in Portainer's Stack Environment Variables panel.
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE}
+    networks:
+      - proxy
+      - internal
+    secrets:
+      - source: codedead_jwt_private_pem
+        target: /run/secrets/jwt_private.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: codedead_jwt_public_pem
+        target: /run/secrets/jwt_public.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0444
+    environment:
+      APP_ENV: production
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      MONGODB_URI: ${MONGODB_URI}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-user_management}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-900}
+      JWT_REFRESH_TOKEN_TTL: ${JWT_REFRESH_TOKEN_TTL:-604800}
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      FRONTEND_URL: ${FRONTEND_URL}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      COOKIE_SECURE: "true"
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-Lax}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-20}
+      RATE_LIMIT_API_PER_MINUTE: ${RATE_LIMIT_API_PER_MINUTE:-300}
+      # Set to "0" if scaling backend replicas > 1 so permission revocations propagate immediately.
+      PERMISSION_CACHE_TTL_SECONDS: ${PERMISSION_CACHE_TTL_SECONDS:-30}
+      # Remove BOOTSTRAP_SUPER_ADMIN_PASSWORD after initial login and password rotation.
+      BOOTSTRAP_SUPER_ADMIN_EMAIL: ${BOOTSTRAP_SUPER_ADMIN_EMAIL:-}
+      BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${BOOTSTRAP_SUPER_ADMIN_PASSWORD:-}
+      RUST_LOG: ${RUST_LOG:-info,auth_backend=info}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      mode: replicated
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+      # Traefik v2/v3 Swarm routing labels (same-domain /api routing by default).
+      # To host API on a separate subdomain instead, replace the rule with:
+      #   Host(`${API_DOMAIN}`)
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=${PROXY_NETWORK:-proxy}
+        - traefik.http.routers.codedead-api.rule=Host(`${APP_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/health`))
+        - traefik.http.routers.codedead-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+        - traefik.http.routers.codedead-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+        - traefik.http.routers.codedead-api.priority=100
+        - traefik.http.services.codedead-api.loadbalancer.server.port=8080
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    networks:
+      - proxy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      mode: replicated
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=${PROXY_NETWORK:-proxy}
+        - traefik.http.routers.codedead-ui.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.codedead-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+        - traefik.http.routers.codedead-ui.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+        - traefik.http.routers.codedead-ui.priority=10
+        - traefik.http.services.codedead-ui.loadbalancer.server.port=80
+
+secrets:
+  codedead_jwt_private_pem:
+    external: true
+  codedead_jwt_public_pem:
+    external: true
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
+  internal:
+    driver: overlay

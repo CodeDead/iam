@@ -41,4 +41,4 @@ MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --locked --test mongodb_in
 cargo build --release --locked
 ```
 
-See [migrations/README.md](migrations/README.md) for MongoDB collections, indexes, and replica-set transaction details, and the root [README.md](../README.md) for the full API reference.
+See [migrations/README.md](migrations/README.md) for MongoDB collections, indexes, and replica-set transaction details, [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) for production Ed25519 key/Swarm secret setup, and the root [README.md](../README.md) for the full API reference.

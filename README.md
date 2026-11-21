@@ -50,7 +50,12 @@ The repository contains two independently structured projects communicating excl
 ├── .github/
 │   └── workflows/
 │       ├── backend-ci.yml
-│       └── frontend-ci.yml
+│       ├── frontend-ci.yml
+│       └── docker-publish.yml
+├── deploy/
+│   ├── README.md
+│   ├── swarm-stack.yml
+│   └── portainer.env.example
 ├── docker-compose.yml
 ├── mongo/
 │   └── mongod.dev.conf
@@ -251,6 +256,8 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 | `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist (wildcards forbidden) |
 | `COOKIE_SECURE` / `COOKIE_SAME_SITE` / `COOKIE_DOMAIN` | `false` / `Lax` / *(empty)* | Refresh & CSRF cookie attributes |
 | `RATE_LIMIT_ENABLED` / `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_API_PER_MINUTE` | `true` / `30` / `300` | Per-IP rate limiting thresholds |
+| `PERMISSION_CACHE_TTL_SECONDS` | `30` | In-memory RBAC cache TTL in seconds (`0` disables caching for multi-replica deployments) |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | When `true`, newly registered accounts start in `pending_verification` status |
 | `BOOTSTRAP_SUPER_ADMIN_EMAIL` / `BOOTSTRAP_SUPER_ADMIN_PASSWORD` | `admin@example.com` / *(empty)* | Optional initial Super Administrator bootstrap |
 | `RUST_LOG` | `info` | `tracing-subscriber` filter expression |
 
@@ -292,6 +299,10 @@ Uses `mongo:latest` configured as a single-node replica set (`rs0`), the optimiz
    npm run dev
    ```
 
+### Option C: Production Docker Swarm / Portainer (MongoDB Atlas)
+
+Deploy pre-built GHCR images with external Ed25519 Swarm secrets and MongoDB Atlas using [deploy/swarm-stack.yml](deploy/swarm-stack.yml) and [deploy/portainer.env.example](deploy/portainer.env.example). See [deploy/README.md](deploy/README.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step instructions.
+
 ---
 
 ## 8. Testing, Linting & CI/CD
@@ -324,5 +335,6 @@ npm run build
 Automated CI runs on pushes to `main` and `develop`, and on pull requests (`opened`, `synchronize`, `reopened`) targeting `main` or `develop`:
 - **[.github/workflows/backend-ci.yml](.github/workflows/backend-ci.yml)**: Verifies zero `mod.rs` files, runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and executes the full unit, API/RBAC, and live `mongo:latest` integration test suite.
 - **[.github/workflows/frontend-ci.yml](.github/workflows/frontend-ci.yml)**: Verifies JavaScript-only source and zero TanStack dependencies, runs Prettier, ESLint (`--max-warnings=0`), Vitest, and the Vite production build.
+- **[.github/workflows/docker-publish.yml](.github/workflows/docker-publish.yml)**: Builds and publishes backend and frontend container images to `ghcr.io` on pushes to `main`, `v*.*.*` tags, or manual dispatch (ready for [deploy/swarm-stack.yml](deploy/swarm-stack.yml) in Portainer).
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production hardening instructions.

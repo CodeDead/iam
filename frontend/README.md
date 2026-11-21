@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Ensure the backend API is running on `VITE_API_BASE_URL` (default `http://localhost:8080/api/v1`).
+Open `http://localhost:5173`. Ensure the backend API is running on `VITE_API_BASE_URL` (default `http://localhost:8080/api/v1`; baked in at Vite build time, defaulting to `/api/v1` in `.github/workflows/docker-publish.yml` for same-origin reverse-proxy deployments).
 
 ## Commands
 
@@ -30,4 +30,4 @@ npm test
 npm run build
 ```
 
-See the root [README.md](../README.md) for full-stack setup and Docker Compose instructions.
+See the root [README.md](../README.md) and [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) for full-stack setup, Docker Compose, and Swarm/Portainer deployment instructions.

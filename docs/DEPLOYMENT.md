@@ -108,3 +108,18 @@ For horizontally scaled multi-replica backend deployments, place an edge/gateway
 ## 7. Initial Super Administrator Bootstrap
 
 Set `BOOTSTRAP_SUPER_ADMIN_EMAIL` and a strong `BOOTSTRAP_SUPER_ADMIN_PASSWORD` only for initial provisioning. Once created, remove `BOOTSTRAP_SUPER_ADMIN_PASSWORD` from the runtime environment and rotate the administrator password via `PATCH /api/v1/profile/password`.
+
+---
+
+## 8. Docker Swarm & Portainer Deployment (with MongoDB Atlas)
+
+Ready-to-use deployment templates are included in `deploy/`:
+- [`deploy/swarm-stack.yml`](../deploy/swarm-stack.yml) — Swarm stack with Ed25519 Docker Secrets (`/run/secrets/jwt_{private,public}.pem` owned by UID `10001`), zero-downtime `start-first` rollouts, `/health/ready` checks, and same-domain Traefik routing (`/api` → backend, `/` → frontend).
+- [`deploy/portainer.env.example`](../deploy/portainer.env.example) — Environment variable template for Portainer's **Load variables from `.env` file** button.
+- [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml) — Publishes both container images to `ghcr.io` on pushes to `main`, `v*.*.*` tags, or manual `workflow_dispatch` (defaults `VITE_API_BASE_URL=/api/v1` for domain-agnostic same-origin routing; override via repo variable `VITE_API_BASE_URL` if hosting the API on a separate subdomain).
+
+### Quick Steps in Portainer
+1. Create two external secrets in **Portainer → Secrets**: `codedead_jwt_private_pem` and `codedead_jwt_public_pem`.
+2. Whitelist your Swarm node public egress IP(s) in **MongoDB Atlas → Network Access**.
+3. In **Portainer → Stacks → Add stack**, paste `deploy/swarm-stack.yml`, populate the variables from `deploy/portainer.env.example`, and click **Deploy the stack**.
+4. Note: Keep `replicas: 1` for Atlas M0 free tier (500-connection limit). If scaling backend `replicas > 1`, set `PERMISSION_CACHE_TTL_SECONDS=0` so permission revocations propagate immediately across replicas.
