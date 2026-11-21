@@ -321,7 +321,7 @@ cargo build --release --locked
 MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --locked --test mongodb_integration_tests -- --nocapture
 ```
 
-### Frontend (Node.js 22 / Vite 8 / Vitest 5)
+### Frontend (Node.js 26 / Vite 8 / Vitest 5)
 
 ```bash
 cd frontend
