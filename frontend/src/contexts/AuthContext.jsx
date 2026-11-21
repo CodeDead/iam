@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authService } from '../services/authService';
-import { clearAuthTokens, setSessionCallbacks } from '../services/api';
+import { clearAuthTokens, getCsrfToken, setSessionCallbacks } from '../services/api';
 import { AuthContext } from './contextInstances';
 
 export function AuthProvider({ children, initialSession = null, skipRestore = false }) {
   const [user, setUser] = useState(initialSession?.user || null);
   const [permissions, setPermissions] = useState(initialSession?.permissions || []);
-  const [isLoading, setIsLoading] = useState(!initialSession && !skipRestore);
+  const shouldRestoreOnMount = !initialSession && !skipRestore && Boolean(getCsrfToken());
+  const [isLoading, setIsLoading] = useState(shouldRestoreOnMount);
   const [wasLoggedOut, setWasLoggedOut] = useState(false);
 
   const applySession = useCallback((sessionData) => {
@@ -32,7 +33,7 @@ export function AuthProvider({ children, initialSession = null, skipRestore = fa
   }, [applySession, clearSession]);
 
   useEffect(() => {
-    if (initialSession || skipRestore) {
+    if (!shouldRestoreOnMount) {
       return;
     }
 
@@ -57,7 +58,7 @@ export function AuthProvider({ children, initialSession = null, skipRestore = fa
     return () => {
       cancelled = true;
     };
-  }, [applySession, clearSession, initialSession, skipRestore]);
+  }, [applySession, clearSession, shouldRestoreOnMount]);
 
   const login = useCallback(
     async (credentials) => {

@@ -107,6 +107,18 @@ async fn registration_login_me_refresh_rotation_reuse_detection_and_logout() {
     let me_body: Value = test::read_body_json(me_resp).await;
     assert_eq!(me_body["data"]["user"]["email"], "alice.walker@example.com");
 
+    // 5b. Refresh with no refresh cookie at all returns 401 MISSING_REFRESH_TOKEN (not 403 CSRF)
+    let no_cookie_refresh = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/refresh")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(no_cookie_refresh.status(), StatusCode::UNAUTHORIZED);
+    let no_cookie_body: Value = test::read_body_json(no_cookie_refresh).await;
+    assert_eq!(no_cookie_body["error"]["code"], "MISSING_REFRESH_TOKEN");
+
     // 6. Refresh without CSRF header fails with 403
     let csrf_fail_req = test::TestRequest::post()
         .uri("/api/v1/auth/refresh")

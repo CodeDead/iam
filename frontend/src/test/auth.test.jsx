@@ -241,4 +241,17 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
     expect(await screen.findByText(/welcome, regular user/i)).toBeInTheDocument();
     expect(screen.queryByText(/403 — access forbidden/i)).not.toBeInTheDocument();
   });
+
+  it('skips startup session refresh when no csrf_token cookie is present', async () => {
+    document.cookie = 'csrf_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+
+    renderWithProviders(<AppRoutes />, {
+      initialEntries: ['/login'],
+      initialSession: null,
+      skipRestore: false,
+    });
+
+    expect(await screen.findByRole('heading', { name: /sign in/i })).toBeInTheDocument();
+    expect(authService.refresh).not.toHaveBeenCalled();
+  });
 });
