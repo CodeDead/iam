@@ -106,14 +106,14 @@ pub async fn refresh(
     req: HttpRequest,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    validate_csrf_double_submit(&req, &state.settings.cookie)?;
-
     let raw_refresh = req
         .cookie(&state.settings.cookie.refresh_cookie_name)
         .map(|c| c.value().to_string())
         .ok_or_else(|| {
             AppError::unauthorized("MISSING_REFRESH_TOKEN", "Refresh token cookie is missing")
         })?;
+
+    validate_csrf_double_submit(&req, &state.settings.cookie)?;
 
     let (user_agent, ip) = extract_client_meta(&req);
     let session = state
