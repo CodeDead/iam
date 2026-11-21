@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-This guide covers hardening, key management, database topology, networking, and operations for deploying **CodeDead IAM** in production.
+This guide covers hardening, key management, database topology, optimized release builds, networking, and operations for deploying **CodeDead IAM** in production.
 
 ---
 
@@ -38,6 +38,7 @@ Never bake PEM keys into Docker images or commit them to source control. Mount t
 Multi-document ACID transactions (used for atomic refresh-token rotation) require a MongoDB Replica Set (minimum 3 nodes recommended in production: 1 primary + 2 secondaries).
 
 Checklist:
+- Pin an explicit MongoDB major release in production and follow MongoDB's sequential `featureCompatibilityVersion` upgrade procedure (`docker-compose.yml` tracks `mongo:latest` for local development).
 - Enable MongoDB authentication (`--auth`) and SCRAM-SHA-256 credentials.
 - Enable TLS (`tls=true`) on the connection string.
 - Restrict network access to backend subnets only.
@@ -53,7 +54,16 @@ MONGODB_DATABASE=user_management
 
 ---
 
-## 3. HTTPS, Cookies, CORS & CSRF
+## 3. Optimized Release Builds
+
+`backend/Cargo.toml` configures `[profile.release]` for maximum runtime performance and minimal binary footprint (`opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`, `incremental = false`).
+
+- `backend/Dockerfile` compiles with `cargo build --release --locked` using Rust `1.100.0` and copies the stripped binary into a non-root `debian:bookworm-slim` runtime image (`appuser`).
+- `frontend/Dockerfile` compiles the Vite 8 production bundle with `npm ci && npm run build` and serves static assets via `nginx:stable-alpine` with `frontend/nginx.conf` security headers and SPA history fallback.
+
+---
+
+## 4. HTTPS, Cookies, CORS & CSRF
 
 Terminate TLS at a reverse proxy (Nginx, Envoy, Traefik, or Cloud Load Balancer) and set:
 
@@ -72,7 +82,7 @@ Notes:
 
 ---
 
-## 4. Rate Limiting & Reverse Proxy Headers
+## 5. Rate Limiting & Reverse Proxy Headers
 
 Configure the reverse proxy to forward `X-Forwarded-For` / `X-Real-IP` safely from trusted proxies only, and tune rate limits:
 
@@ -86,21 +96,15 @@ For horizontally scaled multi-replica backend deployments, place an edge/gateway
 
 ---
 
-## 5. Health Checks & Observability
+## 6. Health Checks & Observability
 
-- **Liveness probe:** `GET /health` (returns HTTP 200 when HTTP worker loop is responsive).
+- **Liveness probe:** `GET /health` (returns HTTP 200 when the HTTP worker loop is responsive).
 - **Readiness probe:** `GET /health/ready` (pings MongoDB before returning HTTP 200).
 - **Structured logging:** Control verbosity via `RUST_LOG=info,auth_backend=info`. Every response emits an `X-Request-Id` header for end-to-end log correlation.
-- **OpenAPI / Swagger UI:** Disable or restrict `/swagger-ui/` at the reverse proxy in locked-down environments if API schema discovery should be internal-only.
+- **OpenAPI / Swagger UI:** Disable or restrict `/swagger-ui/` and `/api/v1/openapi.json` at the reverse proxy in locked-down environments if API schema discovery should be internal-only.
 
 ---
 
-## 6. Initial Super Administrator Bootstrap
+## 7. Initial Super Administrator Bootstrap
 
 Set `BOOTSTRAP_SUPER_ADMIN_EMAIL` and a strong `BOOTSTRAP_SUPER_ADMIN_PASSWORD` only for initial provisioning. Once created, remove `BOOTSTRAP_SUPER_ADMIN_PASSWORD` from the runtime environment and rotate the administrator password via `PATCH /api/v1/profile/password`.
-
----
-
-## 7. Optimized Release Builds
-
-The backend `Cargo.toml` configures an optimized production `[profile.release]` (`opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`, `incremental = false`), and `backend/Dockerfile` builds reproducibly with `cargo build --release --locked`. The frontend `frontend/Dockerfile` installs via `npm ci` and serves the Vite 8 production bundle behind Nginx with strict security headers (`frontend/nginx.conf`).

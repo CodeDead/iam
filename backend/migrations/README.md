@@ -1,8 +1,8 @@
 # MongoDB Schema, Indexes & Migrations
 
-This application uses MongoDB (`mongo:latest` in Docker Compose and CI) with automated, idempotent index initialization and system RBAC seeding at startup (`src/database/mongodb.rs` and `src/database/seed.rs`).
+This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)).
 
-BSON Data Access Objects (DAOs) and MongoDB repository implementations live under `src/repository/`:
+BSON Data Access Objects (DAOs) and repository implementations live under [`src/repository/`](../src/repository/):
 - `src/repository/user/{user_repository.rs, dao/user.rs}`
 - `src/repository/role/{role_repository.rs, dao/role.rs}`
 - `src/repository/permission/{permission_repository.rs, dao/permission.rs}`
@@ -36,9 +36,7 @@ BSON Data Access Objects (DAOs) and MongoDB repository implementations live unde
 
 Multi-document ACID transactions in MongoDB require a **Replica Set** (even a single-node replica set in local development, e.g., `rs0`).
 
-Operations using transactions:
-- Refresh token rotation (revoking the consumed token and inserting its replacement atomically in `src/repository/auth/refresh_token_repository.rs`).
-- Deleting a role or permission while cleaning up references in `users.roles` or `roles.permissions`.
-- Updating security-sensitive user assignments together with revoking active refresh tokens.
+- **Transactional operation**: Atomic refresh-token rotation in `src/repository/auth/refresh_token_repository.rs` (revoking the consumed token and inserting its replacement within a single transaction, preventing concurrent token replay races).
+- **Coordinated referential & session operations**: Deleting a custom role or permission cleans up references in `users.roles` / `roles.permissions` and immediately invalidates the in-memory `PermissionCache`; updating user roles or disabling accounts revokes active refresh tokens and invalidates cached permissions.
 
-The repository layer detects whether the connected MongoDB deployment supports multi-document transactions. In Docker Compose (`docker-compose.yml`), MongoDB is pre-configured as a single-node replica set (`rs0`) so transactions work out of the box. In standalone MongoDB instances without a replica set, the backend logs a clear startup warning and executes the operations sequentially as a fallback (production deployments MUST run a replica set).
+At startup, [`src/database/mongodb.rs`](../src/database/mongodb.rs) detects whether the connected MongoDB deployment is a replica set or sharded cluster. In `docker-compose.yml`, `mongo:latest` is pre-configured as a single-node replica set (`rs0`) so transactions work out of the box. Against standalone MongoDB instances without a replica set, the backend logs a startup warning and falls back to conditional atomic updates (production deployments MUST run a replica set).

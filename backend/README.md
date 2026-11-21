@@ -1,40 +1,44 @@
-# CodeDead IAM — Rust Backend API
+# CodeDead IAM — Backend API (Rust / Actix Web / MongoDB)
 
-Actix Web + MongoDB REST API built with **Rust Edition 2024** targeting **`rustc 1.100.0`**.
+REST API backend for **CodeDead IAM**, targeting **Rust Edition 2024 (`rustc 1.100.0`)**, **Actix Web 4**, and the official **MongoDB Rust Driver 3**.
 
-## Module Architecture (Zero `mod.rs` Files)
+## Module Architecture (Zero `mod.rs`)
 
-- `src/web/controller/` — Thin Actix Web HTTP handlers (`auth`, `users`, `roles`, `permissions`, `profile`, `dashboard`, `health`).
-- `src/web/dto/` — Validated request/response DTOs (`#[serde(deny_unknown_fields)]`, `validator::Validate`, `utoipa::ToSchema`).
-- `src/services/` — Business logic, defense-in-depth RBAC checks, privilege-escalation guards, session revocation, and cache invalidation.
-- `src/repository/` — Domain-grouped repositories and BSON DAOs:
-  - `repository/user/{user_repository.rs, dao/user.rs}`
-  - `repository/role/{role_repository.rs, dao/role.rs}`
-  - `repository/permission/{permission_repository.rs, dao/permission.rs}`
-  - `repository/auth/{refresh_token_repository.rs, dao/refresh_token.rs}`
-- `src/middleware/` — JWT authentication (`JwtAuthMiddleware`), reusable RBAC permission guards (`require_permission`, `PermissionCache`), double-submit CSRF validation, sliding-window rate limiting, and request ID / security headers.
-- `src/security/` — Ed25519 key management, EdDSA JWT signing/verification, Argon2id password hashing, and constant-time crypto helpers.
-- `src/database/` — MongoDB client initialization, index verification, replica-set transaction detection, and idempotent system RBAC seeding.
-- `src/openapi.rs` & `src/routes.rs` — OpenAPI 3.1 spec generation (vendored Swagger UI at `/swagger-ui/`) and route registration under `/api/v1`.
+- `src/web/controller/` — Thin HTTP controllers (`auth`, `users`, `roles`, `permissions`, `profile`, `dashboard`, `health`).
+- `src/web/dto/` — Validated API request/response DTOs (`#[serde(deny_unknown_fields)]`).
+- `src/services/` — Business rules, privilege-escalation protection, cache invalidation, and session revocation.
+- `src/repository/` — Domain-grouped repositories (`*_repository.rs`) and BSON DAOs (`dao/*.rs`) for `user`, `role`, `permission`, and `auth`.
+- `src/middleware/` — JWT authentication, `require_permission` RBAC guards, double-submit CSRF validation, rate limiting, and request ID / security headers.
+- `src/security/` — Argon2id password hashing, EdDSA (Ed25519) JWT signing/verification, key loading, and opaque token / SHA-256 helpers.
+- `src/database/` — MongoDB connection, index initialization, replica-set transaction detection, and system RBAC seeding.
+- `src/openapi.rs` & `src/routes.rs` — Route wiring and vendored OpenAPI 3.1 / Swagger UI documentation.
 
-## Local Commands
+## Quick Start
 
 ```bash
 cp .env.example .env
-
-# Run API locally
 cargo run
+```
 
-# Format, lint & test (unit + Actix HTTP + RBAC integration tests run without MongoDB)
+- API base URL: `http://127.0.0.1:8080/api/v1`
+- Swagger UI: `http://127.0.0.1:8080/swagger-ui/`
+- Health probes: `GET /health`, `GET /health/ready`
+
+## Commands
+
+```bash
+# Formatting & strict Clippy (unsafe_code forbid, unwrap/expect/panic denied)
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
+
+# Run unit & Actix integration tests (no MongoDB required)
 cargo test --locked
 
-# Run live MongoDB integration test
-MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --test mongodb_integration_tests -- --nocapture
+# Run live MongoDB repository, index, and seeding test
+MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --locked --test mongodb_integration_tests -- --nocapture
 
-# Build optimized production release binary (opt-level=3, fat LTO, single CGU, stripped, panic=abort)
+# Build optimized release binary (fat LTO, codegen-units=1, stripped, panic=abort)
 cargo build --release --locked
 ```
 
-See [migrations/README.md](migrations/README.md) for MongoDB collections, indexes, and replica set requirements.
+See [migrations/README.md](migrations/README.md) for MongoDB collections, indexes, and replica-set transaction details, and the root [README.md](../README.md) for the full API reference.

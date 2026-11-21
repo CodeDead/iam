@@ -1,6 +1,6 @@
 # CodeDead IAM — Secure User, Role & Permission Management System
 
-A production-oriented, full-stack Role-Based Access Control (RBAC) platform built with a **Rust (Edition 2024 / rustc 1.100.0) + Actix Web + MongoDB** REST API backend and a **React 19 (JavaScript ES6+) + React Router 7 + Mantine 9 + Vite 8** administration frontend.
+A production-oriented, full-stack Role-Based Access Control (RBAC) platform built with a **Rust (Edition 2024 / `rustc 1.100.0`) + Actix Web 4 + MongoDB** REST API backend and a **React 19 (JavaScript ES6+) + React Router 7 + Mantine 9 + Vite 8** administration frontend.
 
 ---
 
@@ -10,14 +10,14 @@ The repository contains two independently structured projects communicating excl
 
 ```text
 ┌──────────────────────────────┐        HTTPS / JSON + Bearer JWT        ┌────────────────────────────────────┐
-│  React + Mantine Frontend    │ ──────────────────────────────────────► │  Rust / Actix Web REST API         │
+│  React 19 + Mantine 9 UI     │ ──────────────────────────────────────► │  Rust / Actix Web 4 REST API       │
 │  - In-memory Access Token    │        + HttpOnly Refresh Cookie        │  - RequestId & Security Headers    │
 │  - Axios Refresh Queue       │        + X-CSRF-Token Header            │  - Rate Limiting & Strict CORS     │
 │  - Auth & Permission Context │ ◄────────────────────────────────────── │  - JwtAuthMiddleware               │
 └──────────────────────────────┘                                         │  - RequirePermission Guards        │
                                                                          │  - Controllers → Services → Repos  │
                                                                          └──────────────────┬─────────────────┘
-                                                                                            │ Official MongoDB Driver
+                                                                                            │ Official MongoDB Driver 3
                                                                                             ▼
                                                                          ┌────────────────────────────────────┐
                                                                          │  MongoDB (Replica Set rs0)         │
@@ -28,11 +28,18 @@ The repository contains two independently structured projects communicating excl
 
 ### Layered Backend Separation
 
-- **Controllers (`web/controller/*.rs`)**: Thin HTTP adapters; extract DTOs/params, attach cookies, call services, format `ApiResponse`. Never access MongoDB or embed business logic.
+- **Controllers (`web/controller/*.rs`)**: Thin HTTP adapters; extract DTOs/params, attach cookies, call services, and format `ApiResponse`. Never access MongoDB or embed business logic.
 - **DTOs (`web/dto/*.rs`)**: Strict separation between MongoDB BSON DAOs and API request/response contracts (`#[serde(deny_unknown_fields)]` blocks mass assignment; password hashes are never serialized).
 - **Services (`services/*.rs`)**: Business rules, DTO validation, defense-in-depth permission & privilege-escalation checks, cache invalidation, and session revocation.
 - **Repositories & DAOs (`repository/*/*_repository.rs`, `repository/*/dao/*.rs`)**: Trait-based MongoDB persistence with explicit indexes, transaction support, and BSON data access objects.
 - **Module Convention**: Modern Rust 2024 directory modules — **zero `mod.rs` files** exist anywhere in the project.
+- **Safety Lints & Release Optimization**: `unsafe_code = "forbid"`, `clippy::{unwrap_used, expect_used, panic} = "deny"`, and an optimized `[profile.release]` (`opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`).
+
+### Frontend Highlights
+
+- **Pure JavaScript (ES6+)** with React 19, React Router 7, Mantine UI 9, Vite 8, and Axios — no TypeScript and no TanStack packages.
+- **Secure Token Lifecycle**: Access tokens live exclusively in JS memory (never `localStorage`), refresh tokens live in `HttpOnly` cookies, and concurrent `401` responses coalesce into a single `/api/v1/auth/refresh` request.
+- **RBAC UX & Session Isolation**: Navigation links, routes, dashboard stats, and profile Account Access Summary are guarded by user permissions; logging out clears route history state so a subsequent user never inherits a restricted redirect.
 
 ---
 
@@ -50,10 +57,10 @@ The repository contains two independently structured projects communicating excl
 ├── docs/
 │   └── DEPLOYMENT.md
 ├── backend/
+│   ├── README.md
 │   ├── Cargo.toml
 │   ├── Cargo.lock
 │   ├── Dockerfile
-│   ├── README.md
 │   ├── .env.example
 │   ├── config/default.toml
 │   ├── migrations/README.md
@@ -81,11 +88,11 @@ The repository contains two independently structured projects communicating excl
 │       ├── permission_tests.rs
 │       └── mongodb_integration_tests.rs
 └── frontend/
+    ├── README.md
     ├── package.json
     ├── package-lock.json
     ├── Dockerfile
     ├── nginx.conf
-    ├── README.md
     ├── vite.config.js
     ├── postcss.config.cjs
     ├── eslint.config.js
@@ -94,7 +101,7 @@ The repository contains two independently structured projects communicating excl
     └── src/
         ├── main.jsx, App.jsx, theme.js
         ├── config/api.js
-        ├── contexts/{contextInstances.js, AuthContext.jsx, PermissionContext.jsx}
+        ├── contexts/{contextInstances,AuthContext,PermissionContext}.jsx
         ├── hooks/{useAuth,usePermissions}.js
         ├── services/{api,authService,userService,roleService,permissionService,profileService,dashboardService}.js
         ├── components/{common,navigation,forms}/
@@ -105,47 +112,45 @@ The repository contains two independently structured projects communicating excl
         └── test/
 ```
 
+See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md) for subproject-specific guides.
+
 ---
 
 ## 3. MongoDB Schema & Relationships
 
 | Collection | Key Fields | Indexes |
 | --- | --- | --- |
-| `users` | `_id`, `first_name`, `last_name`, `email`, `password_hash`, `status`, `email_verified`, `roles: [ObjectId]`, `token_version`, `profile`, `created_at`, `updated_at`, `last_login_at` | Unique `email`, `status`, `roles`, `created_at` |
-| `roles` | `_id`, `name`, `description`, `permissions: [ObjectId]`, `is_system`, `created_at`, `updated_at` | Unique `name`, `permissions`, `is_system` |
-| `permissions` | `_id`, `name` (`resource.action`), `resource`, `action`, `description`, `is_system`, `created_at`, `updated_at` | Unique `name`, compound unique `(resource, action)`, `is_system` |
-| `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash`, `user_id`, `family_id`, TTL on `expires_at` |
+| `users` | `_id`, `first_name`, `last_name`, `email`, `password_hash`, `status`, `email_verified`, `roles: [ObjectId]`, `token_version`, `profile`, `created_at`, `updated_at`, `last_login_at` | Unique `email` (`email_unique`), `status` (`status_idx`), `roles` (`roles_idx`), `created_at` (`created_at_desc`) |
+| `roles` | `_id`, `name`, `description`, `permissions: [ObjectId]`, `is_system`, `created_at`, `updated_at` | Unique `name` (`role_name_unique`), `permissions` (`permissions_idx`), `is_system` (`is_system_idx`) |
+| `permissions` | `_id`, `name` (`resource.action`), `resource`, `action`, `description`, `is_system`, `created_at`, `updated_at` | Unique `name` (`permission_name_unique`), compound unique `(resource, action)` (`resource_action_unique`), `is_system` (`perm_is_system_idx`) |
+| `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), TTL on `expires_at` (`expires_at_ttl`) |
 
 - **Relationships**: Users reference multiple `roles` by `ObjectId`; roles reference multiple `permissions` by `ObjectId`. Effective permissions are computed dynamically as the union of permissions across all assigned roles.
 - **Seeded System Roles**: `Super Administrator`, `Administrator`, `Moderator`, `User`.
 - **Seeded System Permissions**: `users.{read,create,update,delete,assign_roles,manage_self_roles}`, `roles.{read,create,update,delete}`, `permissions.{read,create,update,delete}`, `profile.{read,update}`.
 
-See [backend/migrations/README.md](backend/migrations/README.md) for indexing and replica set details.
+See [backend/migrations/README.md](backend/migrations/README.md) for indexing and replica-set transaction details.
 
 ---
 
 ## 4. Authentication, JWT Lifecycle & RBAC Security
 
-1. **Password Security**: Argon2id (`Algorithm::Argon2id`, `V0x13`, 19 MiB, 2 iterations) executed off the Actix event loop via `tokio::task::spawn_blocking`.
-2. **Access JWTs**: Asymmetric **EdDSA (Ed25519)** signed tokens (default 15m TTL) validating signature, `iss`, `aud`, `exp`, `nbf`, `token_type == "access"`, and `tv` (user `token_version`). Permissions are **never** trusted blindly from JWT claims; they are resolved via a short-TTL `PermissionCache` that is explicitly invalidated immediately upon any user role, role permission, or permission change.
-3. **Refresh Token Rotation & Reuse Detection**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB, transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production). Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions when on a replica set). Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately.
+1. **Password Security**: Argon2id (`argon2 0.6`, `Algorithm::Argon2id`, `V0x13`, 19 MiB, 2 iterations) executed off the Actix event loop via `tokio::task::spawn_blocking`.
+2. **Access JWTs**: Asymmetric **EdDSA (Ed25519)** signed tokens (`jsonwebtoken 12`, `ed25519-dalek 3`, default 15m TTL) validating signature, `iss`, `aud`, `exp`, `nbf`, `token_type == "access"`, and `tv` (user `token_version`). Permissions are **never** trusted blindly from JWT claims; they are resolved via a short-TTL `PermissionCache` explicitly invalidated immediately upon any user role, role permission, or permission mutation.
+3. **Refresh Token Rotation & Reuse Detection**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB, transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production). Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions when connected to a replica set). Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately.
 4. **CSRF Protection**: Double-submit cookie pattern (`csrf_token` cookie + `X-CSRF-Token` header verified with constant-time comparison via `subtle`).
-5. **Privilege Escalation Defenses** (enforced in both middleware and services):
+5. **Privilege Escalation Defenses** (enforced in both HTTP middleware and services):
    - Registration strictly assigns only the `User` role and rejects unexpected fields (`#[serde(deny_unknown_fields)]`).
    - Users cannot modify their own account status, delete themselves, or modify their own roles unless explicitly holding `users.manage_self_roles`.
    - Non-Super-Administrators cannot assign `Super Administrator` or any role containing permissions they do not personally hold.
    - The last active `Super Administrator` cannot be disabled, locked, demoted, or deleted.
    - Protected system roles and system permissions cannot be deleted or renamed.
-6. **Frontend Session & Access UX**:
-   - Access tokens are stored strictly in JS memory (never `localStorage`); concurrent 401 responses coalesce into a single `/api/v1/auth/refresh` call.
-   - Signing out clears previous route history so a subsequent login as another user lands cleanly on `/` instead of hitting a stale restricted route (`403`).
-   - The **Account Access Summary** card on `/profile` is hidden from standard `User` accounts and shown only to users holding `roles.read` or `permissions.read`.
 
 ---
 
 ## 5. REST API Reference (`/api/v1`)
 
-Interactive OpenAPI 3.1 Swagger UI is available at:
+Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`) is available at:
 - `GET /swagger-ui/`
 - `GET /api/v1/openapi.json`
 
@@ -232,21 +237,27 @@ Error response example (`403 Forbidden`):
 
 ## 6. Environment Configuration
 
-Copy [backend/.env.example](backend/.env.example) and [frontend/.env.example](frontend/.env.example) for local overrides. Never commit `.env` files or PEM keys.
+Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [frontend/.env.example](frontend/.env.example) to `frontend/.env`.
 
-| Variable | Default / Example | Description |
+### Backend (`backend/.env`)
+| Variable | Default (`config/default.toml`) | Description |
 | --- | --- | --- |
-| `APP_ENV` | `development` | `development` or `production` (production requires PEM keys & secure cookies) |
-| `SERVER_HOST` / `SERVER_PORT` | `127.0.0.1` / `8080` | Backend HTTP bind address |
-| `MONGODB_URI` | `mongodb://localhost:27017/?replicaSet=rs0` | MongoDB connection URI |
-| `MONGODB_DATABASE` | `user_management` | Target MongoDB database name |
-| `JWT_ISSUER` / `JWT_AUDIENCE` | `user-management-api` / `user-management-client` | Validated JWT `iss` and `aud` claims |
-| `JWT_ACCESS_TOKEN_TTL` / `JWT_REFRESH_TOKEN_TTL` | `900` / `604800` | Access (15m) and refresh (7d) lifetimes in seconds |
-| `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(ephemeral in dev)* | Ed25519 PKCS#8 PEM key paths (mandatory in production) |
-| `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origins (wildcard `*` forbidden) |
-| `COOKIE_SECURE` / `COOKIE_SAME_SITE` | `false` / `Lax` | Auth cookie security attributes (`COOKIE_SECURE=true` required in prod) |
-| `BOOTSTRAP_SUPER_ADMIN_EMAIL` / `_PASSWORD` | `admin@example.com` / `ChangeMe123!` | Optional initial Super Admin seed if none exists |
-| `VITE_API_BASE_URL` *(frontend)* | `http://localhost:8080/api/v1` | REST API base URL for Vite frontend |
+| `APP_ENV` | `development` | `development` or `production` (production requires PEM keys & `COOKIE_SECURE=true`) |
+| `SERVER_HOST` / `SERVER_PORT` | `127.0.0.1` / `8080` | Bind host and port |
+| `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `user_management` | MongoDB connection URI and database name |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `user-management-api` / `user-management-client` | JWT `iss` and `aud` validation claims |
+| `JWT_ACCESS_TOKEN_TTL` / `JWT_REFRESH_TOKEN_TTL` | `900` / `604800` | Token lifetimes in seconds (15 min / 7 days) |
+| `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(empty in dev)* | Ed25519 PKCS#8/SPKI PEM key paths (mandatory in production) |
+| `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist (wildcards forbidden) |
+| `COOKIE_SECURE` / `COOKIE_SAME_SITE` / `COOKIE_DOMAIN` | `false` / `Lax` / *(empty)* | Refresh & CSRF cookie attributes |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_API_PER_MINUTE` | `true` / `30` / `300` | Per-IP rate limiting thresholds |
+| `BOOTSTRAP_SUPER_ADMIN_EMAIL` / `BOOTSTRAP_SUPER_ADMIN_PASSWORD` | `admin@example.com` / *(empty)* | Optional initial Super Administrator bootstrap |
+| `RUST_LOG` | `info` | `tracing-subscriber` filter expression |
+
+### Frontend (`frontend/.env`)
+| Variable | Default | Description |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` | Base URL for the Rust REST API |
 
 ---
 
@@ -258,22 +269,22 @@ Copy [backend/.env.example](backend/.env.example) and [frontend/.env.example](fr
 docker compose up --build
 ```
 
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:8080/api/v1`
-- Swagger UI: `http://localhost:8080/swagger-ui/`
-- MongoDB: `mongo:latest` initialized automatically as replica set `rs0`
-- Bootstrap Super Admin (dev compose defaults): `admin@example.com` / `ChangeMe123!`
+Uses `mongo:latest` configured as a single-node replica set (`rs0`), the optimized Rust release container, and the Nginx frontend container:
+- **Frontend**: `http://localhost:5173`
+- **Backend API**: `http://localhost:8080/api/v1`
+- **Swagger UI**: `http://localhost:8080/swagger-ui/`
+- **Bootstrap Super Admin (dev compose defaults)**: `admin@example.com` / `ChangeMe123!`
 
 ### Option B: Manual Local Setup
 
-1. Start MongoDB (`rs0` replica set recommended, or `docker compose up -d mongodb`).
-2. Configure & run the backend (see [backend/README.md](backend/README.md)):
+1. Start MongoDB (`docker compose up -d mongodb`, or a local replica set `rs0` on `localhost:27017`).
+2. Configure & run the backend:
    ```bash
    cd backend
    cp .env.example .env
    cargo run
    ```
-3. Configure & run the frontend (see [frontend/README.md](frontend/README.md)):
+3. Configure & run the frontend:
    ```bash
    cd frontend
    cp .env.example .env
@@ -283,22 +294,22 @@ docker compose up --build
 
 ---
 
-## 8. Testing, Quality Checks & CI
+## 8. Testing, Linting & CI/CD
 
-### Backend (Rust 1.100.0)
+### Backend (`rustc 1.100.0`)
 
 ```bash
 cd backend
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-cargo build --release --locked   # Optimized fat-LTO, stripped binary
+cargo build --release --locked
 
-# Optional: run live MongoDB repository, index & seeding integration test
-MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --test mongodb_integration_tests -- --nocapture
+# Optional: run live MongoDB repository, index, and seeding integration test
+MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --locked --test mongodb_integration_tests -- --nocapture
 ```
 
-### Frontend (React 19 / Vite 8 / Vitest 5)
+### Frontend (Node.js 22 / Vite 8 / Vitest 5)
 
 ```bash
 cd frontend
@@ -308,10 +319,10 @@ npm test
 npm run build
 ```
 
-### GitHub Actions CI
+### GitHub Actions Workflows
 
-Two automated workflows run on pushes to `main` / `develop` and on pull requests (`opened`, `synchronize`, `reopened`):
-- [.github/workflows/backend-ci.yml](.github/workflows/backend-ci.yml): Enforces zero `mod.rs` files, `cargo fmt`, `cargo clippy -- -D warnings`, and runs the full test suite against a live `mongo:latest` service container.
-- [.github/workflows/frontend-ci.yml](.github/workflows/frontend-ci.yml): Enforces JavaScript-only & zero TanStack dependencies, Prettier, ESLint (`--max-warnings=0`), Vitest, and Vite production builds.
+Automated CI runs on pushes to `main` and `develop`, and on pull requests (`opened`, `synchronize`, `reopened`) targeting `main` or `develop`:
+- **[.github/workflows/backend-ci.yml](.github/workflows/backend-ci.yml)**: Verifies zero `mod.rs` files, runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and executes the full unit, API/RBAC, and live `mongo:latest` integration test suite.
+- **[.github/workflows/frontend-ci.yml](.github/workflows/frontend-ci.yml)**: Verifies JavaScript-only source and zero TanStack dependencies, runs Prettier, ESLint (`--max-warnings=0`), Vitest, and the Vite production build.
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production hardening instructions.
