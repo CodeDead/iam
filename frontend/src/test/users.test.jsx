@@ -79,4 +79,22 @@ describe('User Management Page', () => {
     expect(await screen.findByText('alice@example.com')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /create user/i })).not.toBeInTheDocument();
   });
+
+  it('displays an error alert when the backend is offline during user lookup', async () => {
+    userService.list.mockRejectedValue({
+      code: 'ERR_NETWORK',
+      message: 'Network Error',
+    });
+
+    const adminSession = {
+      user: { id: 'u1', email: 'alice@example.com', roles: [] },
+      permissions: ['users.read'],
+    };
+
+    renderWithProviders(<UsersPage />, { initialSession: adminSession });
+
+    expect(
+      await screen.findByText(/unable to connect to the server\. please verify the api is running/i)
+    ).toBeInTheDocument();
+  });
 });

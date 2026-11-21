@@ -39,6 +39,7 @@ export function clearAuthTokens() {
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -48,6 +49,7 @@ export const apiClient = axios.create({
 export const refreshClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -115,8 +117,41 @@ apiClient.interceptors.request.use((config) => {
   return nextConfig;
 });
 
+function assertJsonApiResponse(response) {
+  if (response.status === 204) {
+    return response;
+  }
+
+  const contentType = String(
+    response.headers?.['content-type'] || response.headers?.['Content-Type'] || ''
+  ).toLowerCase();
+  const isApiEnvelope =
+    typeof response.data === 'object' &&
+    response.data !== null &&
+    Object.prototype.hasOwnProperty.call(response.data, 'success');
+
+  if (!isApiEnvelope || (contentType && !contentType.includes('application/json'))) {
+    const err = new Error('The API server is currently unavailable. Please try again shortly.');
+    err.code = 'SERVICE_UNAVAILABLE';
+    err.config = response.config;
+    err.response = {
+      status: 503,
+      data: {
+        success: false,
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'The API server is currently unavailable. Please try again shortly.',
+        },
+      },
+    };
+    return Promise.reject(err);
+  }
+
+  return response;
+}
+
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => assertJsonApiResponse(response),
   async (error) => {
     const originalRequest = error.config;
     const status = error.response?.status;

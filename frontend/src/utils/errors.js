@@ -15,7 +15,29 @@ export function extractApiError(error, fallback = 'An unexpected error occurred'
     };
   }
 
-  if (error.message === 'Network Error') {
+  if (error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout')) {
+    return {
+      code: 'REQUEST_TIMEOUT',
+      message: 'The request timed out. The API server may be offline or overloaded.',
+      details: null,
+      status,
+    };
+  }
+
+  if (status === 502 || status === 503 || status === 504) {
+    return {
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'The API server is currently unavailable. Please try again shortly.',
+      details: null,
+      status,
+    };
+  }
+
+  if (
+    error.code === 'ERR_NETWORK' ||
+    error.message === 'Network Error' ||
+    (!error.response && error.request)
+  ) {
     return {
       code: 'NETWORK_ERROR',
       message: 'Unable to connect to the server. Please verify the API is running.',
@@ -25,7 +47,7 @@ export function extractApiError(error, fallback = 'An unexpected error occurred'
   }
 
   return {
-    code: 'REQUEST_FAILED',
+    code: error.code || 'REQUEST_FAILED',
     message: error.message || fallback,
     details: null,
     status,

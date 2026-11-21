@@ -8,6 +8,7 @@ import {
   setAuthTokens,
   setSessionCallbacks,
 } from '../services/api';
+import { extractApiError } from '../utils/errors';
 
 describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
   beforeEach(() => {
@@ -110,5 +111,40 @@ describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
     } finally {
       apiClient.defaults.adapter = originalAdapter;
     }
+  });
+
+  it('rejects non-JSON HTML SPA fallback responses as SERVICE_UNAVAILABLE', async () => {
+    const originalAdapter = apiClient.defaults.adapter;
+    apiClient.defaults.adapter = async (config) => ({
+      data: '<!doctype html><html><body>SPA fallback</body></html>',
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/html' },
+      config,
+    });
+
+    try {
+      await expect(apiClient.get('/users?search=john')).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        response: { status: 503 },
+      });
+    } finally {
+      apiClient.defaults.adapter = originalAdapter;
+    }
+  });
+
+  it('maps 502/503/504 gateway errors and timeouts to clear user-facing messages', () => {
+    expect(extractApiError({ response: { status: 502, data: 'Bad Gateway' } })).toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'The API server is currently unavailable. Please try again shortly.',
+    });
+    expect(
+      extractApiError({ code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' })
+    ).toMatchObject({
+      code: 'REQUEST_TIMEOUT',
+    });
+    expect(extractApiError({ code: 'ERR_NETWORK', message: 'Network Error' })).toMatchObject({
+      code: 'NETWORK_ERROR',
+    });
   });
 });
