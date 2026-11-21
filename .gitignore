@@ -1,0 +1,20 @@
+# Secrets & local environment overrides
+.env
+backend/.env
+frontend/.env
+*.pem
+*.key
+
+# Rust build artifacts
+backend/target/
+
+# Frontend build & dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

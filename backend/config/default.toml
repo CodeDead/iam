@@ -1,0 +1,42 @@
+[app]
+environment = "development"
+require_email_verification = false
+permission_cache_ttl_seconds = 30
+
+[server]
+host = "127.0.0.1"
+port = 8080
+frontend_url = "http://localhost:5173"
+allowed_origins = ["http://localhost:5173"]
+
+[mongodb]
+uri = "mongodb://localhost:27017"
+database = "user_management"
+max_pool_size = 50
+min_pool_size = 5
+
+[jwt]
+issuer = "user-management-api"
+audience = "user-management-client"
+access_token_ttl = 900
+refresh_token_ttl = 604800
+private_key_path = ""
+public_key_path = ""
+
+[cookie]
+refresh_cookie_name = "refresh_token"
+csrf_cookie_name = "csrf_token"
+secure = false
+same_site = "Lax"
+domain = ""
+
+[rate_limit]
+enabled = true
+auth_requests_per_minute = 30
+api_requests_per_minute = 300
+
+[bootstrap]
+super_admin_email = "admin@example.com"
+super_admin_password = ""
+super_admin_first_name = "System"
+super_admin_last_name = "Administrator"
