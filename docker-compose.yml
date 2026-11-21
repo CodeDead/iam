@@ -1,0 +1,73 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: auth-mongodb
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo/mongod.dev.conf:/etc/mongod.dev.conf:ro
+    healthcheck:
+      test: >
+        mongosh --quiet --eval "
+        try { rs.status().ok }
+        catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongodb:27017' }] }).ok }
+        "
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: auth-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: development
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      MONGODB_DATABASE: user_management
+      JWT_ISSUER: user-management-api
+      JWT_AUDIENCE: user-management-client
+      JWT_ACCESS_TOKEN_TTL: 900
+      JWT_REFRESH_TOKEN_TTL: 604800
+      FRONTEND_URL: http://localhost:5173
+      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
+      COOKIE_SECURE: "false"
+      COOKIE_SAME_SITE: Lax
+      BOOTSTRAP_SUPER_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_SUPER_ADMIN_PASSWORD: ChangeMe123!
+      RUST_LOG: info,auth_backend=debug
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8080/api/v1
+    container_name: auth-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+
+volumes:
+  mongodb_data:

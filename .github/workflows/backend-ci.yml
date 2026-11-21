@@ -1,0 +1,100 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint-and-format:
+    name: Format, Clippy & Module Conventions
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify no mod.rs files exist
+        working-directory: .
+        run: |
+          MOD_FILES=$(find backend/src -name 'mod.rs')
+          if [ -n "$MOD_FILES" ]; then
+            echo "Forbidden mod.rs files detected:"
+            echo "$MOD_FILES"
+            exit 1
+          fi
+
+      - name: Install Rust 1.100.0 toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.100.0'
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+
+      - name: Check formatting (cargo fmt)
+        run: cargo fmt --all -- --check
+
+      - name: Lint with Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  test:
+    name: Unit, API & MongoDB Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust 1.100.0 toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.100.0'
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+
+      - name: Run unit, API, RBAC, and MongoDB integration tests
+        env:
+          MONGODB_TEST_URI: mongodb://127.0.0.1:27017
+        run: cargo test --locked -- --nocapture
