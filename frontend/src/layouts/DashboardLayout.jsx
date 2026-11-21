@@ -8,6 +8,7 @@ import {
   Text,
   ThemeIcon,
   Tooltip,
+  useComputedColorScheme,
   useMantineColorScheme,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
@@ -27,7 +28,9 @@ export function DashboardLayout() {
   const [opened, { toggle, close }] = useDisclosure();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { setColorScheme } = useMantineColorScheme();
+  const computedColorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
+  const toggleColorScheme = () => setColorScheme(computedColorScheme === 'dark' ? 'light' : 'dark');
 
   const handleLogout = async () => {
     await logout();
@@ -64,7 +67,7 @@ export function DashboardLayout() {
                 onClick={toggleColorScheme}
                 aria-label="Toggle color scheme"
               >
-                {colorScheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
+                {computedColorScheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
               </ActionIcon>
             </Tooltip>
 

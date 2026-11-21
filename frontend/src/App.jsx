@@ -9,7 +9,7 @@ import { theme } from './theme';
 
 export function App() {
   return (
-    <MantineProvider theme={theme} defaultColorScheme="light">
+    <MantineProvider theme={theme} defaultColorScheme="auto">
       <Notifications position="top-right" />
       <ModalsProvider>
         <BrowserRouter>
