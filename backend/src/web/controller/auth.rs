@@ -251,7 +251,10 @@ fn attach_auth_cookies(
     response.cookie(csrf_builder.finish());
 }
 
-fn clear_auth_cookies(response: &mut actix_web::HttpResponseBuilder, settings: &CookieSettings) {
+pub(crate) fn clear_auth_cookies(
+    response: &mut actix_web::HttpResponseBuilder,
+    settings: &CookieSettings,
+) {
     let same_site = parse_same_site(&settings.same_site);
     let mut refresh_cookie = Cookie::build(settings.refresh_cookie_name.clone(), "")
         .http_only(true)

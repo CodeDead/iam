@@ -49,6 +49,7 @@ const ACTION_OPTIONS = [
   { value: 'user.deleted', label: 'user.deleted' },
   { value: 'profile.updated', label: 'profile.updated' },
   { value: 'profile.password_changed', label: 'profile.password_changed' },
+  { value: 'profile.account_deleted', label: 'profile.account_deleted' },
   { value: 'auth.registered', label: 'auth.registered' },
   { value: 'auth.login', label: 'auth.login' },
   { value: 'auth.logout', label: 'auth.logout' },
@@ -56,7 +57,7 @@ const ACTION_OPTIONS = [
 ];
 
 function getActionBadgeColor(action = '') {
-  if (action.endsWith('.deleted') || action.includes('reused')) return 'red';
+  if (action.endsWith('deleted') || action.includes('reused')) return 'red';
   if (action.endsWith('.created') || action.endsWith('.registered')) return 'green';
   if (action.endsWith('.login')) return 'teal';
   if (action.endsWith('.logout')) return 'gray';

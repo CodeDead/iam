@@ -8,17 +8,21 @@ use crate::{
         errors::AppError,
         validation::{normalize_email, validate_dto},
     },
+    database::seed::ROLE_SUPER_ADMIN,
     middleware::{AuthenticatedUser, PermissionCache},
     repository::{
         auth::refresh_token_repository::RefreshTokenRepository,
         permission::permission_repository::PermissionRepository,
         role::role_repository::RoleRepository,
-        user::{dao::user::UserProfileInfo, user_repository::UserRepository},
+        user::{
+            dao::user::{AccountStatus, UserProfileInfo},
+            user_repository::UserRepository,
+        },
     },
     security::password::{hash_password, verify_password},
     services::audit::{AuditEvent, AuditService},
     web::dto::{
-        profile::{ChangePasswordRequest, UpdateProfileRequest},
+        profile::{ChangePasswordRequest, DeleteAccountRequest, UpdateProfileRequest},
         roles::RoleSummary,
         users::UserResponse,
     },
@@ -191,6 +195,63 @@ impl ProfileService {
                     "profile.password_changed",
                     "profile",
                     format!("Changed password for '{}'", user.email),
+                )
+                .with_resource(user.id.to_hex(), user.email.clone()),
+            )
+            .await;
+
+        Ok(())
+    }
+
+    pub async fn delete_account(
+        &self,
+        actor: &AuthenticatedUser,
+        req: DeleteAccountRequest,
+    ) -> Result<(), AppError> {
+        actor.require_permission("profile.delete")?;
+        validate_dto(&req)?;
+
+        let user = self
+            .user_repo
+            .find_by_id(actor.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("USER_NOT_FOUND", "User not found"))?;
+
+        let valid = verify_password(req.current_password, user.password_hash.clone()).await?;
+        if !valid {
+            return Err(AppError::bad_request(
+                "INVALID_CURRENT_PASSWORD",
+                "Current password is incorrect",
+            ));
+        }
+
+        if let Some(sa_role) = self.role_repo.find_by_name(ROLE_SUPER_ADMIN).await?
+            && user.roles.contains(&sa_role.id)
+            && user.status == AccountStatus::Active
+        {
+            let active_count = self
+                .user_repo
+                .count_active_users_with_role(sa_role.id)
+                .await?;
+            if active_count <= 1 {
+                return Err(AppError::conflict(
+                    "LAST_SUPER_ADMIN_PROTECTED",
+                    "Cannot delete the last active Super Administrator account",
+                ));
+            }
+        }
+
+        self.refresh_token_repo.revoke_all_for_user(user.id).await?;
+        self.permission_cache.invalidate_user(user.id).await;
+        self.user_repo.delete(user.id).await?;
+
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "profile.account_deleted",
+                    "profile",
+                    format!("Deleted own account '{}'", user.email),
                 )
                 .with_resource(user.id.to_hex(), user.email.clone()),
             )

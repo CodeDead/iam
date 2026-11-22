@@ -4,7 +4,7 @@ REST API backend for **CodeDead IAM**, targeting **Rust Edition 2024 (`rustc 1.1
 
 ## Module Architecture (Zero `mod.rs`)
 
-- `src/web/controller/` — Thin HTTP controllers (`audit`, `auth`, `users`, `roles`, `permissions`, `profile`, `dashboard`, `health`).
+- `src/web/controller/` — Thin HTTP controllers (`audit`, `auth`, `users`, `roles`, `permissions`, `profile` including self-service account deletion, `dashboard`, `health`).
 - `src/web/dto/` — Validated API request/response DTOs (`#[serde(deny_unknown_fields)]`).
 - `src/services/` — Business rules, privilege-escalation protection, structured + persisted audit logging, cache invalidation, and session revocation.
 - `src/repository/` — Domain-grouped repositories (`*_repository.rs`) and BSON DAOs (`dao/*.rs`) for `user`, `role`, `permission`, `auth`, and `audit`.

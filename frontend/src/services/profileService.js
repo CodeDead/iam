@@ -15,4 +15,11 @@ export const profileService = {
     const response = await apiClient.patch('/profile/password', payload);
     return response.data;
   },
+
+  async deleteAccount(currentPassword) {
+    const response = await apiClient.delete('/profile', {
+      data: { current_password: currentPassword },
+    });
+    return response.data;
+  },
 };
