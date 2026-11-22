@@ -107,6 +107,8 @@ impl AppState {
             Arc::clone(&user_repo),
             Arc::clone(&role_repo),
             Arc::clone(&permission_repo),
+            Arc::clone(&refresh_token_repo),
+            Arc::clone(&audit_repo),
         );
 
         Self {

@@ -31,6 +31,8 @@ pub trait RefreshTokenRepository: Send + Sync {
     async fn delete_family(&self, family_id: &str) -> Result<(), AppError>;
     async fn delete_all_for_user(&self, user_id: ObjectId) -> Result<(), AppError>;
     async fn count_for_family(&self, family_id: &str) -> Result<u64, AppError>;
+    async fn count_active_all(&self) -> Result<u64, AppError>;
+    async fn count_active_for_user(&self, user_id: ObjectId) -> Result<u64, AppError>;
 }
 
 pub struct MongoRefreshTokenRepository {
@@ -211,6 +213,29 @@ impl RefreshTokenRepository for MongoRefreshTokenRepository {
         Ok(self
             .collection
             .count_documents(doc! { "family_id": family_id })
+            .await?)
+    }
+
+    async fn count_active_all(&self) -> Result<u64, AppError> {
+        let now = BsonDateTime::now();
+        Ok(self
+            .collection
+            .count_documents(doc! {
+                "revoked_at": null,
+                "expires_at": { "$gt": now }
+            })
+            .await?)
+    }
+
+    async fn count_active_for_user(&self, user_id: ObjectId) -> Result<u64, AppError> {
+        let now = BsonDateTime::now();
+        Ok(self
+            .collection
+            .count_documents(doc! {
+                "user_id": user_id,
+                "revoked_at": null,
+                "expires_at": { "$gt": now }
+            })
             .await?)
     }
 }

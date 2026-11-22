@@ -34,6 +34,8 @@ pub trait PermissionRepository: Send + Sync {
     async fn update(&self, permission: &Permission) -> Result<Permission, AppError>;
     async fn delete(&self, id: ObjectId) -> Result<bool, AppError>;
     async fn count_all(&self) -> Result<u64, AppError>;
+    async fn count_by_system(&self, is_system: bool) -> Result<u64, AppError>;
+    async fn count_by_resource(&self) -> Result<Vec<(String, u64)>, AppError>;
 }
 
 pub struct MongoPermissionRepository {
@@ -134,6 +136,36 @@ impl PermissionRepository for MongoPermissionRepository {
 
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.collection.count_documents(doc! {}).await?)
+    }
+
+    async fn count_by_system(&self, is_system: bool) -> Result<u64, AppError> {
+        Ok(self
+            .collection
+            .count_documents(doc! { "is_system": is_system })
+            .await?)
+    }
+
+    async fn count_by_resource(&self) -> Result<Vec<(String, u64)>, AppError> {
+        let pipeline = vec![
+            doc! { "$group": { "_id": "$resource", "count": { "$sum": 1 } } },
+            doc! { "$sort": { "count": -1, "_id": 1 } },
+            doc! { "$limit": 25 },
+        ];
+        let cursor = self.collection.aggregate(pipeline).await?;
+        let docs: Vec<Document> = cursor.try_collect().await?;
+        let mut results = Vec::with_capacity(docs.len());
+        for d in docs {
+            if let Ok(resource) = d.get_str("_id") {
+                let count = d
+                    .get_i64("count")
+                    .ok()
+                    .and_then(|v| u64::try_from(v).ok())
+                    .or_else(|| d.get_i32("count").ok().and_then(|v| u64::try_from(v).ok()))
+                    .unwrap_or(0);
+                results.push((resource.to_string(), count));
+            }
+        }
+        Ok(results)
     }
 }
 
