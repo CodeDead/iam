@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authService } from '../services/authService';
-import { clearAuthTokens, getCsrfToken, setSessionCallbacks } from '../services/api';
+import {
+  broadcastAuthLoggedOut,
+  clearAuthTokens,
+  getCsrfToken,
+  setSessionCallbacks,
+} from '../services/api';
 import { AuthContext } from './contextInstances';
 
 export function AuthProvider({ children, initialSession = null, skipRestore = false }) {
@@ -81,6 +86,7 @@ export function AuthProvider({ children, initialSession = null, skipRestore = fa
   const endSession = useCallback(() => {
     setWasLoggedOut(true);
     clearSession();
+    broadcastAuthLoggedOut();
   }, [clearSession]);
 
   const logout = useCallback(async () => {

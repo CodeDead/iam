@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { dashboardService } from '../services/dashboardService';
@@ -84,7 +85,9 @@ const fullStatsPayload = {
     events_last_24h: 8,
     events_last_7d: 25,
     failed_logins_last_24h: 2,
+    token_reuse_alerts_last_24h: 1,
     token_reuse_alerts_last_7d: 1,
+    latest_token_reuse_at: '2026-11-22T15:00:00Z',
     daily_activity: [
       { date: '2026-11-16', total: 2, auth_success: 2, auth_failed: 0, admin_changes: 0 },
       { date: '2026-11-17', total: 4, auth_success: 2, auth_failed: 1, admin_changes: 1 },
@@ -114,6 +117,7 @@ const fullStatsPayload = {
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   it('renders KPI cards, security alert banner, charts, and recent audit activity for administrators', async () => {
@@ -149,6 +153,55 @@ describe('DashboardPage', () => {
     expect(screen.queryByText(/role coverage & distribution/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/permissions by resource/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent security & audit activity/i)).not.toBeInTheDocument();
+  });
+
+  it('allows dismissing the 24h token reuse alert and re-shows it when a newer event occurs', async () => {
+    const user = userEvent.setup();
+    dashboardService.getStats.mockResolvedValue(fullStatsPayload);
+
+    const { unmount } = renderWithProviders(<DashboardPage />, {
+      initialSession: fullAdminSession,
+    });
+
+    expect(await screen.findByText(/refresh token reuse detected/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /dismiss token reuse alert/i }));
+    expect(screen.queryByText(/refresh token reuse detected/i)).not.toBeInTheDocument();
+    unmount();
+
+    // Re-mounting with the same alert fingerprint keeps it dismissed
+    const second = renderWithProviders(<DashboardPage />, { initialSession: fullAdminSession });
+    expect(await screen.findByText(/7-day security & audit activity/i)).toBeInTheDocument();
+    expect(screen.queryByText(/refresh token reuse detected/i)).not.toBeInTheDocument();
+    second.unmount();
+
+    // A newer reuse event immediately brings the alert back
+    dashboardService.getStats.mockResolvedValue({
+      ...fullStatsPayload,
+      audit: {
+        ...fullStatsPayload.audit,
+        token_reuse_alerts_last_24h: 2,
+        latest_token_reuse_at: '2026-11-22T16:30:00Z',
+      },
+    });
+    renderWithProviders(<DashboardPage />, { initialSession: fullAdminSession });
+    expect(await screen.findByText(/refresh token reuse detected/i)).toBeInTheDocument();
+  });
+
+  it('does not display the red reuse alert banner when no reuse occurred in the last 24h', async () => {
+    dashboardService.getStats.mockResolvedValue({
+      ...fullStatsPayload,
+      audit: {
+        ...fullStatsPayload.audit,
+        token_reuse_alerts_last_24h: 0,
+        token_reuse_alerts_last_7d: 3,
+        latest_token_reuse_at: undefined,
+      },
+    });
+
+    renderWithProviders(<DashboardPage />, { initialSession: fullAdminSession });
+
+    expect(await screen.findByText(/7-day security & audit activity/i)).toBeInTheDocument();
+    expect(screen.queryByText(/refresh token reuse detected/i)).not.toBeInTheDocument();
   });
 
   it('displays an error alert when dashboard stats fail to load', async () => {

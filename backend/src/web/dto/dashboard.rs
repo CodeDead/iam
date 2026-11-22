@@ -73,7 +73,10 @@ pub struct AuditStats {
     pub events_last_24h: u64,
     pub events_last_7d: u64,
     pub failed_logins_last_24h: u64,
+    pub token_reuse_alerts_last_24h: u64,
     pub token_reuse_alerts_last_7d: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_token_reuse_at: Option<DateTime<Utc>>,
     pub daily_activity: Vec<DailyActivityPoint>,
     pub by_resource_type: Vec<ResourceCountItem>,
     pub recent_events: Vec<RecentAuditEvent>,

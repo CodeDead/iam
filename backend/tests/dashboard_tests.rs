@@ -102,7 +102,9 @@ async fn dashboard_stats_returns_rich_metrics_for_super_admin_and_enforces_stric
     assert!(audit["total"].as_u64().unwrap() >= 3);
     assert!(audit["events_last_24h"].as_u64().unwrap() >= 3);
     assert_eq!(audit["failed_logins_last_24h"], 1);
+    assert_eq!(audit["token_reuse_alerts_last_24h"], 0);
     assert_eq!(audit["token_reuse_alerts_last_7d"], 0);
+    assert!(audit.get("latest_token_reuse_at").is_none());
     assert_eq!(audit["daily_activity"].as_array().unwrap().len(), 7);
     assert!(!audit["by_resource_type"].as_array().unwrap().is_empty());
 

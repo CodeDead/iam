@@ -36,8 +36,8 @@ BSON Data Access Objects (DAOs) and repository implementations live under [`src/
 - `revoked_at`: TTL index (`revoked_at_ttl`, controlled by `REVOKED_TOKEN_RETENTION_SECONDS`, default `3600` seconds; `0` disables) for automatic cleanup of revoked tokens (active sessions with `revoked_at: null` are unaffected; logout and account deletion also hard-delete tokens immediately)
 
 ### 5. `audit_logs`
-- `created_at`: Descending index (`audit_created_at_desc`) and optional TTL index (`audit_created_at_ttl`, controlled by `AUDIT_LOG_RETENTION_DAYS`, default `90` days; `0` disables TTL)
-- `action`, `created_at`: Compound index (`audit_action_created_at`)
+- `created_at`: Descending index (`audit_created_at_desc`) backing paginated listings and 7-day dashboard activity aggregations, plus optional TTL index (`audit_created_at_ttl`, controlled by `AUDIT_LOG_RETENTION_DAYS`, default `90` days; `0` disables TTL)
+- `action`, `created_at`: Compound index (`audit_action_created_at`) backing action filters and 24h/7d failed-login & token-reuse security alert counts on the dashboard
 - `resource_type`, `created_at`: Compound index (`audit_resource_type_created_at`)
 - `actor_id`, `created_at`: Compound index (`audit_actor_id_created_at`)
 

@@ -188,10 +188,31 @@ impl DashboardService {
                 .audit_repo
                 .count_action_since("auth.login_failed", since_24h)
                 .await?;
+            let token_reuse_alerts_last_24h = self
+                .audit_repo
+                .count_action_since("auth.refresh_token_reused", since_24h)
+                .await?;
             let token_reuse_alerts_last_7d = self
                 .audit_repo
                 .count_action_since("auth.refresh_token_reused", since_7d)
                 .await?;
+            let latest_token_reuse_at = if token_reuse_alerts_last_24h > 0 {
+                let (latest, _) = self
+                    .audit_repo
+                    .find_all(&AuditLogFilter {
+                        action: Some("auth.refresh_token_reused".to_string()),
+                        skip: 0,
+                        limit: 1,
+                        sort_order: Some(SortOrder::Desc),
+                        ..Default::default()
+                    })
+                    .await?;
+                latest
+                    .first()
+                    .map(|entry| bson_dt_to_chrono(entry.created_at))
+            } else {
+                None
+            };
 
             // Build a continuous 7-day UTC series ending today so charts always render 7 days.
             let today_utc = now.date_naive();
@@ -269,7 +290,9 @@ impl DashboardService {
                 events_last_24h,
                 events_last_7d,
                 failed_logins_last_24h,
+                token_reuse_alerts_last_24h,
                 token_reuse_alerts_last_7d,
+                latest_token_reuse_at,
                 daily_activity,
                 by_resource_type,
                 recent_events,

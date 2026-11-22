@@ -5,6 +5,7 @@ import {
   getAccessToken,
   performTokenRefresh,
   refreshClient,
+  resetCrossTabSyncState,
   setAuthTokens,
   setSessionCallbacks,
 } from '../services/api';
@@ -12,12 +13,14 @@ import { extractApiError } from '../utils/errors';
 
 describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
   beforeEach(() => {
+    resetCrossTabSyncState();
     clearAuthTokens();
     setSessionCallbacks({ onRefreshed: null, onExpired: null });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    resetCrossTabSyncState();
     clearAuthTokens();
   });
 
@@ -179,5 +182,106 @@ describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
       message: 'Cannot delete the last active Super Administrator account',
       status: 409,
     });
+  });
+
+  it('reuses a cross-tab broadcast refresh when navigator.locks reports contention', async () => {
+    const channels = [];
+    class FakeBroadcastChannel {
+      constructor(name) {
+        this.name = name;
+        this.onmessage = null;
+        channels.push(this);
+      }
+      postMessage(data) {
+        for (const ch of channels) {
+          if (ch !== this && ch.name === this.name && typeof ch.onmessage === 'function') {
+            ch.onmessage({ data });
+          }
+        }
+      }
+      close() {}
+    }
+
+    const originalBC = globalThis.BroadcastChannel;
+    const originalLocks = navigator.locks;
+    globalThis.BroadcastChannel = FakeBroadcastChannel;
+    resetCrossTabSyncState();
+
+    const syncedPayload = {
+      access_token: 'synced-from-tab-1',
+      csrf_token: 'csrf-from-tab-1',
+      user: { id: 'u1', email: 'admin@example.com', roles: [] },
+      permissions: ['users.read'],
+    };
+
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: vi.fn(async (_name, optionsOrCb, maybeCb) => {
+          if (typeof optionsOrCb === 'object' && optionsOrCb?.ifAvailable) {
+            // Simulate another tab holding the lock right now
+            return maybeCb(null);
+          }
+          const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
+          // Simulate Tab 1 broadcasting its fresh session right as it releases the lock
+          const tab1Channel = new FakeBroadcastChannel('codedead-iam-auth-sync');
+          tab1Channel.postMessage({ type: 'AUTH_REFRESHED', payload: syncedPayload });
+          return cb({});
+        }),
+      },
+    });
+
+    const refreshSpy = vi.spyOn(refreshClient, 'post');
+    const onRefreshed = vi.fn();
+    setAuthTokens({ accessToken: 'old-token', csrfToken: 'old-csrf' });
+    setSessionCallbacks({ onRefreshed, onExpired: null });
+
+    try {
+      const result = await performTokenRefresh();
+      expect(result.access_token).toBe('synced-from-tab-1');
+      expect(getAccessToken()).toBe('synced-from-tab-1');
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(onRefreshed).toHaveBeenCalledWith(syncedPayload);
+    } finally {
+      globalThis.BroadcastChannel = originalBC;
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: originalLocks });
+    }
+  });
+
+  it('clears tokens and triggers onExpired when another tab broadcasts AUTH_LOGGED_OUT', () => {
+    const channels = [];
+    class FakeBroadcastChannel {
+      constructor(name) {
+        this.name = name;
+        this.onmessage = null;
+        channels.push(this);
+      }
+      postMessage(data) {
+        for (const ch of channels) {
+          if (ch !== this && ch.name === this.name && typeof ch.onmessage === 'function') {
+            ch.onmessage({ data });
+          }
+        }
+      }
+      close() {}
+    }
+
+    const originalBC = globalThis.BroadcastChannel;
+    globalThis.BroadcastChannel = FakeBroadcastChannel;
+    resetCrossTabSyncState();
+    const onExpired = vi.fn();
+
+    try {
+      setAuthTokens({ accessToken: 'active-token', csrfToken: 'csrf-1' });
+      setSessionCallbacks({ onRefreshed: null, onExpired });
+
+      const otherTab = new FakeBroadcastChannel('codedead-iam-auth-sync');
+      otherTab.postMessage({ type: 'AUTH_LOGGED_OUT' });
+
+      expect(getAccessToken()).toBeNull();
+      expect(onExpired).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.BroadcastChannel = originalBC;
+    }
   });
 });

@@ -78,6 +78,24 @@ function getAuditBadgeColor(action = '') {
   return 'indigo';
 }
 
+const DISMISSED_REUSE_ALERT_KEY = 'codedead_iam_dismissed_token_reuse_alert';
+
+function readDismissedReuseKey() {
+  try {
+    return window.localStorage.getItem(DISMISSED_REUSE_ALERT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveDismissedReuseKey(value) {
+  try {
+    window.localStorage.setItem(DISMISSED_REUSE_ALERT_KEY, value);
+  } catch {
+    // Ignore storage quota or privacy-mode errors.
+  }
+}
+
 export function DashboardPage() {
   const { user, permissions } = useAuth();
   const { hasPermission } = usePermissions();
@@ -85,6 +103,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [dismissedReuseKey, setDismissedReuseKey] = useState(() => readDismissedReuseKey());
 
   const handleRefresh = useCallback(() => {
     setLoading(true);
@@ -115,6 +134,20 @@ export function DashboardPage() {
     stats?.users && stats.users.total > 0
       ? Math.round((stats.users.active / stats.users.total) * 100)
       : 0;
+
+  const tokenReuseCount24h = stats?.audit?.token_reuse_alerts_last_24h || 0;
+  const tokenReuseAlertKey =
+    tokenReuseCount24h > 0
+      ? `${tokenReuseCount24h}:${stats?.audit?.latest_token_reuse_at || ''}`
+      : null;
+  const showTokenReuseBanner =
+    !loading && Boolean(tokenReuseAlertKey) && dismissedReuseKey !== tokenReuseAlertKey;
+
+  const handleDismissTokenReuseAlert = useCallback(() => {
+    if (!tokenReuseAlertKey) return;
+    setDismissedReuseKey(tokenReuseAlertKey);
+    saveDismissedReuseKey(tokenReuseAlertKey);
+  }, [tokenReuseAlertKey]);
 
   const showActivityChart = Boolean(hasPermission('audit_logs.read') && stats?.audit);
   const showUserStatusChart = Boolean(hasPermission('users.read') && stats?.users);
@@ -166,19 +199,26 @@ export function DashboardPage() {
       <ErrorAlert error={error} onClose={() => setError(null)} />
 
       <PermissionGuard permission="audit_logs.read">
-        {!loading && stats?.audit?.token_reuse_alerts_last_7d > 0 && (
+        {showTokenReuseBanner && (
           <Alert
             color="red"
             variant="light"
             radius="md"
+            withCloseButton
+            closeButtonLabel="Dismiss token reuse alert"
+            onClose={handleDismissTokenReuseAlert}
             icon={<IconShieldExclamation size={20} />}
             title="Refresh Token Reuse Detected"
           >
             <Group justify="space-between" align="center" wrap="wrap" gap="sm">
               <Text size="sm">
-                {stats.audit.token_reuse_alerts_last_7d} refresh token reuse{' '}
-                {stats.audit.token_reuse_alerts_last_7d === 1 ? 'alert was' : 'alerts were'}{' '}
-                triggered in the last 7 days. Affected token families were automatically revoked.
+                {tokenReuseCount24h} refresh token reuse{' '}
+                {tokenReuseCount24h === 1 ? 'alert was' : 'alerts were'} triggered in the last 24
+                hours
+                {stats?.audit?.latest_token_reuse_at
+                  ? ` (latest: ${formatDateTime(stats.audit.latest_token_reuse_at)})`
+                  : ''}
+                . Affected token families were automatically revoked.
               </Text>
               <Button
                 component={Link}
