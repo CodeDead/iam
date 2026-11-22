@@ -5,6 +5,7 @@ import {
   Card,
   Divider,
   Group,
+  Modal,
   PasswordInput,
   SimpleGrid,
   Stack,
@@ -15,6 +16,7 @@ import {
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
+import { IconTrash } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { ErrorAlert } from '../../components/common/ErrorAlert';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -29,13 +31,16 @@ import { formatDateTime } from '../../utils/formatters';
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,128}$/;
 
 export function ProfilePage() {
-  const { user, permissions, updateUser, logout } = useAuth();
+  const { user, permissions, updateUser, logout, endSession } = useAuth();
   const { hasAnyPermission } = usePermissions();
   const navigate = useNavigate();
   const [profileError, setProfileError] = useState(null);
   const [passwordError, setPasswordError] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const canViewAccessSummary = hasAnyPermission(['roles.read', 'permissions.read']);
 
   const profileForm = useForm({
@@ -69,6 +74,15 @@ export function ProfilePage() {
           : 'Min 8 chars with uppercase, lowercase, digit, and special character',
       new_password_confirmation: (v, vals) =>
         v === vals.new_password ? null : 'Password confirmation does not match',
+    },
+  });
+
+  const deleteForm = useForm({
+    initialValues: {
+      current_password: '',
+    },
+    validate: {
+      current_password: (v) => (v.length > 0 ? null : 'Current password is required'),
     },
   });
 
@@ -144,6 +158,34 @@ export function ProfilePage() {
       setPasswordError(extractApiError(err, 'Failed to change password'));
     } finally {
       setSavingPassword(false);
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (deletingAccount) return;
+    setDeleteModalOpen(false);
+    setDeleteError(null);
+    deleteForm.reset();
+  };
+
+  const handleDeleteAccount = async (values) => {
+    setDeleteError(null);
+    setDeletingAccount(true);
+    try {
+      await profileService.deleteAccount(values.current_password);
+      notifications.show({
+        title: 'Account deleted',
+        message: 'Your account has been permanently deleted.',
+        color: 'green',
+      });
+      setDeleteModalOpen(false);
+      deleteForm.reset();
+      endSession();
+      navigate('/login', { replace: true, state: null });
+    } catch (err) {
+      setDeleteError(extractApiError(err, 'Failed to delete account'));
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -264,8 +306,72 @@ export function ProfilePage() {
               </Stack>
             </Card>
           </PermissionGuard>
+
+          <PermissionGuard permission="profile.delete">
+            <Card
+              withBorder
+              radius="md"
+              p="lg"
+              style={{ borderColor: 'var(--mantine-color-red-5)' }}
+            >
+              <Stack gap="sm">
+                <Title order={4} c="red">
+                  Delete Account
+                </Title>
+                <Text size="sm" c="dimmed">
+                  Permanently delete your account and revoke all active sessions. This action cannot
+                  be undone.
+                </Text>
+                <Group justify="flex-end">
+                  <Button
+                    color="red"
+                    variant="light"
+                    leftSection={<IconTrash size={16} />}
+                    onClick={() => {
+                      setDeleteError(null);
+                      deleteForm.reset();
+                      setDeleteModalOpen(true);
+                    }}
+                  >
+                    Delete my account
+                  </Button>
+                </Group>
+              </Stack>
+            </Card>
+          </PermissionGuard>
         </Stack>
       </SimpleGrid>
+
+      <Modal
+        opened={deleteModalOpen}
+        onClose={handleCloseDeleteModal}
+        title="Confirm Account Deletion"
+        centered
+      >
+        <form onSubmit={deleteForm.onSubmit(handleDeleteAccount)}>
+          <Stack gap="sm">
+            <Text size="sm">
+              Are you sure you want to permanently delete <strong>{user?.email}</strong>? All active
+              sessions will be revoked immediately and your account cannot be recovered.
+            </Text>
+            <ErrorAlert error={deleteError} onClose={() => setDeleteError(null)} />
+            <PasswordInput
+              label="Enter your current password to confirm"
+              placeholder="Current password"
+              required
+              {...deleteForm.getInputProps('current_password')}
+            />
+            <Group justify="flex-end" mt="sm">
+              <Button variant="default" onClick={handleCloseDeleteModal} disabled={deletingAccount}>
+                Cancel
+              </Button>
+              <Button type="submit" color="red" loading={deletingAccount}>
+                Permanently delete account
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     </Stack>
   );
 }

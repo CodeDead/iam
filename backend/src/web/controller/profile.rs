@@ -7,9 +7,12 @@ use crate::{
         responses::{ApiResponse, EmptyData},
     },
     middleware::AuthenticatedUser,
-    web::dto::{
-        profile::{ChangePasswordRequest, UpdateProfileRequest},
-        users::UserResponse,
+    web::{
+        controller::auth::clear_auth_cookies,
+        dto::{
+            profile::{ChangePasswordRequest, DeleteAccountRequest, UpdateProfileRequest},
+            users::UserResponse,
+        },
     },
 };
 
@@ -75,4 +78,36 @@ pub async fn change_password(
         EmptyData {},
         "Password changed successfully; all existing sessions have been revoked",
     ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/profile",
+    tag = "Profile",
+    security(("bearer_auth" = [])),
+    request_body = DeleteAccountRequest,
+    responses(
+        (status = 200, description = "Account permanently deleted", body = ApiResponse<EmptyData>),
+        (status = 400, description = "Current password is incorrect"),
+        (status = 409, description = "Cannot delete the last active Super Administrator")
+    )
+)]
+pub async fn delete_account(
+    actor: AuthenticatedUser,
+    state: web::Data<AppState>,
+    body: web::Json<DeleteAccountRequest>,
+) -> Result<HttpResponse, AppError> {
+    state
+        .profile_service
+        .delete_account(&actor, body.into_inner())
+        .await?;
+
+    let mut response = HttpResponse::Ok();
+    clear_auth_cookies(&mut response, &state.settings.cookie);
+
+    Ok(response.json(ApiResponse {
+        success: true,
+        data: EmptyData {},
+        message: "Your account has been permanently deleted".to_string(),
+    }))
 }

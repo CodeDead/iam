@@ -31,3 +31,10 @@ pub struct ChangePasswordRequest {
     ))]
     pub new_password_confirmation: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteAccountRequest {
+    #[validate(length(min = 1, max = 128, message = "Current password is required"))]
+    pub current_password: String,
+}

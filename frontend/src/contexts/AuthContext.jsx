@@ -78,14 +78,18 @@ export function AuthProvider({ children, initialSession = null, skipRestore = fa
     [applySession]
   );
 
+  const endSession = useCallback(() => {
+    setWasLoggedOut(true);
+    clearSession();
+  }, [clearSession]);
+
   const logout = useCallback(async () => {
     try {
       await authService.logout();
     } finally {
-      setWasLoggedOut(true);
-      clearSession();
+      endSession();
     }
-  }, [clearSession]);
+  }, [endSession]);
 
   const refreshProfile = useCallback(async () => {
     const data = await authService.me();
@@ -103,10 +107,21 @@ export function AuthProvider({ children, initialSession = null, skipRestore = fa
       login,
       register,
       logout,
+      endSession,
       refreshProfile,
       updateUser: setUser,
     }),
-    [user, permissions, isLoading, wasLoggedOut, login, register, logout, refreshProfile]
+    [
+      user,
+      permissions,
+      isLoading,
+      wasLoggedOut,
+      login,
+      register,
+      logout,
+      endSession,
+      refreshProfile,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

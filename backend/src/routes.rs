@@ -70,6 +70,12 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, rate_limit: &RateLimitSett
                                 .to(profile_ctrl::update_profile),
                         )
                         .service(
+                            web::resource("")
+                                .guard(guard::Delete())
+                                .wrap(require_permission("profile.delete"))
+                                .to(profile_ctrl::delete_account),
+                        )
+                        .service(
                             web::resource("/password")
                                 .guard(guard::Patch())
                                 .wrap(require_permission("profile.update"))

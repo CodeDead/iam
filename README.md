@@ -91,6 +91,7 @@ The repository contains two independently structured projects communicating excl
 │   └── tests/
 │       ├── audit_log_tests.rs
 │       ├── auth_tests.rs
+│       ├── profile_tests.rs
 │       ├── user_tests.rs
 │       ├── role_tests.rs
 │       ├── permission_tests.rs
@@ -137,7 +138,7 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 
 - **Relationships**: Users reference multiple `roles` by `ObjectId`; roles reference multiple `permissions` by `ObjectId`. Effective permissions are computed dynamically as the union of permissions across all assigned roles.
 - **Seeded System Roles**: `Super Administrator`, `Administrator`, `Moderator`, `User`.
-- **Seeded System Permissions**: `users.{read,create,update,delete,assign_roles,manage_self_roles}`, `roles.{read,create,update,delete}`, `permissions.{read,create,update,delete}`, `audit_logs.read`, `profile.{read,update}` (newly-introduced system permissions are automatically backfilled onto existing system roles on startup).
+- **Seeded System Permissions**: `users.{read,create,update,delete,assign_roles,manage_self_roles}`, `roles.{read,create,update,delete}`, `permissions.{read,create,update,delete}`, `audit_logs.read`, `profile.{read,update,delete}` (newly-introduced system permissions are automatically backfilled onto existing system roles on startup).
 
 See [backend/migrations/README.md](backend/migrations/README.md) for indexing and replica-set transaction details.
 
@@ -151,7 +152,7 @@ See [backend/migrations/README.md](backend/migrations/README.md) for indexing an
 4. **CSRF Protection**: Double-submit cookie pattern (`csrf_token` cookie + `X-CSRF-Token` header verified with constant-time comparison via `subtle`).
 5. **Privilege Escalation Defenses** (enforced in both HTTP middleware and services):
    - Registration strictly assigns only the `User` role and rejects unexpected fields (`#[serde(deny_unknown_fields)]`).
-   - Users cannot modify their own account status, delete themselves, or modify their own roles unless explicitly holding `users.manage_self_roles`.
+   - Users cannot modify their own account status, delete themselves via administration endpoints, or modify their own roles unless explicitly holding `users.manage_self_roles`. Self-service account deletion (`DELETE /api/v1/profile`, requiring `profile.delete`) requires current password confirmation, revokes all sessions, and still protects the last active `Super Administrator`.
    - Non-Super-Administrators cannot assign `Super Administrator` or any role containing permissions they do not personally hold.
    - The last active `Super Administrator` cannot be disabled, locked, demoted, or deleted.
    - Protected system roles and system permissions cannot be deleted or renamed.
@@ -181,7 +182,7 @@ Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`
 | Method | Endpoint | Required Permission |
 | --- | --- | --- |
 | `GET` | `/api/v1/dashboard/stats` | Authenticated (response filtered per permission) |
-| `GET` / `PUT` | `/api/v1/profile` | `profile.read` / `profile.update` |
+| `GET` / `PUT` / `DELETE` | `/api/v1/profile` | `profile.read` / `profile.update` / `profile.delete` |
 | `PATCH` | `/api/v1/profile/password` | `profile.update` |
 | `GET` / `POST` | `/api/v1/users` | `users.read` / `users.create` |
 | `GET` / `PUT` / `DELETE` | `/api/v1/users/{id}` | `users.read` / `users.update` / `users.delete` |

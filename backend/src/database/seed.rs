@@ -58,6 +58,7 @@ pub const SYSTEM_PERMISSIONS: &[(&str, &str, &str)] = &[
     ("permissions", "delete", "Delete non-system permissions"),
     ("profile", "read", "View own user profile"),
     ("profile", "update", "Update own user profile and password"),
+    ("profile", "delete", "Delete own user account"),
     (
         "audit_logs",
         "read",
@@ -118,6 +119,7 @@ pub async fn seed_system_rbac(
         "audit_logs.read",
         "profile.read",
         "profile.update",
+        "profile.delete",
     ]);
 
     let moderator_perms = collect_perms(&[
@@ -127,9 +129,10 @@ pub async fn seed_system_rbac(
         "permissions.read",
         "profile.read",
         "profile.update",
+        "profile.delete",
     ]);
 
-    let user_perms = collect_perms(&["profile.read", "profile.update"]);
+    let user_perms = collect_perms(&["profile.read", "profile.update", "profile.delete"]);
 
     let role_defs = [
         (
