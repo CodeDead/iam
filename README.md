@@ -134,7 +134,7 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 | `users` | `_id`, `first_name`, `last_name`, `email`, `password_hash`, `status`, `email_verified`, `roles: [ObjectId]`, `token_version`, `profile`, `created_at`, `updated_at`, `last_login_at` | Unique `email` (`email_unique`), `status` (`status_idx`), `roles` (`roles_idx`), `created_at` (`created_at_desc`) |
 | `roles` | `_id`, `name`, `description`, `permissions: [ObjectId]`, `is_system`, `created_at`, `updated_at` | Unique `name` (`role_name_unique`), `permissions` (`permissions_idx`), `is_system` (`is_system_idx`) |
 | `permissions` | `_id`, `name` (`resource.action`), `resource`, `action`, `description`, `is_system`, `created_at`, `updated_at` | Unique `name` (`permission_name_unique`), compound unique `(resource, action)` (`resource_action_unique`), `is_system` (`perm_is_system_idx`) |
-| `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), TTL on `expires_at` (`expires_at_ttl`) |
+| `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), `(family_id, revoked_at)` (`family_revoked_at_idx`), TTL on `expires_at` (`expires_at_ttl`), TTL on `revoked_at` (`revoked_at_ttl`) |
 | `audit_logs` | `_id`, `action`, `resource_type`, `resource_id`, `resource_name`, `actor_id`, `actor_email`, `summary`, `details`, `created_at` | `created_at` (`audit_created_at_desc`), TTL on `created_at` (`audit_created_at_ttl`, configurable via `AUDIT_LOG_RETENTION_DAYS`), `(action, created_at)` (`audit_action_created_at`), `(resource_type, created_at)` (`audit_resource_type_created_at`), `(actor_id, created_at)` (`audit_actor_id_created_at`) |
 
 - **Relationships**: Users reference multiple `roles` by `ObjectId`; roles reference multiple `permissions` by `ObjectId`. Effective permissions are computed dynamically as the union of permissions across all assigned roles.
@@ -149,7 +149,7 @@ See [backend/migrations/README.md](backend/migrations/README.md) for indexing an
 
 1. **Password Security & Timing Protection**: Argon2id (`argon2 0.6`, `Algorithm::Argon2id`, `V0x13`, 19 MiB, 2 iterations) executed off the Actix event loop via `tokio::task::spawn_blocking`. Unknown-email logins execute a dummy Argon2id verification to prevent timing-based user enumeration, and all failed login attempts are recorded as `auth.login_failed` audit events.
 2. **Access JWTs**: Asymmetric **EdDSA (Ed25519)** signed tokens (`jsonwebtoken 12`, `ed25519-dalek 3`, default 15m TTL) validating signature, `iss`, `aud`, `exp`, `nbf`, `token_type == "access"`, and `tv` (user `token_version`, incremented immediately upon role changes, account deactivation, or password changes). Permissions are **never** trusted blindly from JWT claims; they are resolved via a short-TTL `PermissionCache` explicitly invalidated immediately upon any user role, role permission, or permission mutation.
-3. **Refresh Token Rotation & Reuse Detection**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB, transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production). Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions when connected to a replica set). Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately.
+3. **Refresh Token Rotation, Reuse Detection & Cleanup**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB, transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production). Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions when connected to a replica set) and prunes older revoked tokens in that family to at most **5** recent entries so repeated page reloads cannot grow the collection unboundedly. Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately. Revoked tokens are automatically purged by MongoDB's `revoked_at` TTL index (`REVOKED_TOKEN_RETENTION_SECONDS`, default `3600` seconds), expired tokens are purged via the `expires_at` TTL index, and logout or account/user deletion hard-deletes session tokens immediately.
 4. **CSRF Protection**: Double-submit cookie pattern (`csrf_token` cookie + `X-CSRF-Token` header verified with constant-time comparison via `subtle`).
 5. **Privilege Escalation Defenses** (enforced in both HTTP middleware and services):
    - Registration strictly assigns only the `User` role and rejects unexpected fields (`#[serde(deny_unknown_fields)]`).
@@ -176,7 +176,7 @@ Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`
 | `POST` | `/api/v1/auth/register` | Public | Register a standard `User` account |
 | `POST` | `/api/v1/auth/login` | Public | Authenticate & issue access JWT + refresh cookie |
 | `POST` | `/api/v1/auth/refresh` | Refresh cookie + CSRF | Rotate refresh token & issue new access JWT |
-| `POST` | `/api/v1/auth/logout` | Refresh cookie + CSRF | Revoke token family & clear cookies |
+| `POST` | `/api/v1/auth/logout` | Refresh cookie + CSRF | Delete token family & clear cookies |
 | `GET` | `/api/v1/auth/me` | Bearer JWT | Get authenticated user & effective permissions |
 
 ### Users, Roles, Permissions, Audit Logs, Profile & Dashboard
@@ -262,6 +262,7 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 | `MONGODB_DATABASE` | `user_management` | Configurable target MongoDB database name (override via `.env`, `docker-compose.yml`, or Portainer stack env) |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `user-management-api` / `user-management-client` | JWT `iss` and `aud` validation claims |
 | `JWT_ACCESS_TOKEN_TTL` / `JWT_REFRESH_TOKEN_TTL` | `900` / `604800` | Token lifetimes in seconds (15 min / 7 days) |
+| `REVOKED_TOKEN_RETENTION_SECONDS` | `3600` | MongoDB TTL retention in seconds for revoked refresh tokens (1 hour; `0` disables `revoked_at` TTL); rotation also prunes to at most 5 revoked tokens per session family |
 | `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(empty in dev)* | Ed25519 PKCS#8/SPKI PEM key paths (mandatory in production) |
 | `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist (wildcards forbidden) |
 | `COOKIE_SECURE` / `COOKIE_SAME_SITE` / `COOKIE_DOMAIN` | `false` / `Lax` / *(empty)* | Refresh & CSRF cookie attributes |

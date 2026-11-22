@@ -42,8 +42,14 @@ pub struct JwtSettings {
     pub audience: String,
     pub access_token_ttl: i64,
     pub refresh_token_ttl: i64,
+    #[serde(default = "default_revoked_token_retention_seconds")]
+    pub revoked_token_retention_seconds: u64,
     pub private_key_path: String,
     pub public_key_path: String,
+}
+
+fn default_revoked_token_retention_seconds() -> u64 {
+    3_600
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,6 +116,7 @@ impl Default for Settings {
                 audience: "user-management-client".to_string(),
                 access_token_ttl: 900,
                 refresh_token_ttl: 604_800,
+                revoked_token_retention_seconds: default_revoked_token_retention_seconds(),
                 private_key_path: String::new(),
                 public_key_path: String::new(),
             },
@@ -290,9 +297,14 @@ fn apply_env_overrides(settings: &mut Settings) {
         settings.jwt.access_token_ttl = parsed;
     }
     if let Ok(val) = env::var("JWT_REFRESH_TOKEN_TTL")
-        && let Ok(parsed) = val.parse::<i64>()
+        && let Ok(parsed) = val.trim().parse::<i64>()
     {
         settings.jwt.refresh_token_ttl = parsed;
+    }
+    if let Ok(val) = env::var("REVOKED_TOKEN_RETENTION_SECONDS")
+        && let Ok(parsed) = val.trim().parse::<u64>()
+    {
+        settings.jwt.revoked_token_retention_seconds = parsed;
     }
     if let Ok(val) = env::var("JWT_PRIVATE_KEY_PATH") {
         settings.jwt.private_key_path = val;

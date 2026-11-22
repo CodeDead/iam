@@ -241,7 +241,7 @@ impl ProfileService {
             }
         }
 
-        self.refresh_token_repo.revoke_all_for_user(user.id).await?;
+        self.refresh_token_repo.delete_all_for_user(user.id).await?;
         self.permission_cache.invalidate_user(user.id).await;
         self.user_repo.delete(user.id).await?;
 

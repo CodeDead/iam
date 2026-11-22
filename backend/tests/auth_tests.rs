@@ -438,3 +438,98 @@ async fn cf_connecting_ip_isolates_rate_limit_buckets_behind_cloudflared_and_tra
         "198.51.100.25"
     );
 }
+
+#[actix_web::test]
+async fn repeated_refresh_rotation_prunes_old_tokens_and_logout_deletes_family() {
+    let state = create_test_app_state().await.unwrap();
+    let app = test::init_service(
+        App::new().configure(|cfg| configure_app_services(cfg, web::Data::new(state.clone()))),
+    )
+    .await;
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(login_resp.status(), StatusCode::OK);
+    let mut current_refresh = extract_cookie(&login_resp, "refresh_token").unwrap();
+    let mut current_csrf = extract_cookie(&login_resp, "csrf_token").unwrap();
+
+    let family_id = state
+        .refresh_token_repo
+        .find_by_hash(&sha256_hex(&current_refresh))
+        .await
+        .unwrap()
+        .unwrap()
+        .family_id;
+
+    // Simulate rapid F5 refreshes (12 rotations in a row)
+    let mut previous_refresh = String::new();
+    for _ in 0..12 {
+        previous_refresh = current_refresh.clone();
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/v1/auth/refresh")
+                .cookie(Cookie::new("refresh_token", current_refresh.clone()))
+                .cookie(Cookie::new("csrf_token", current_csrf.clone()))
+                .insert_header(("X-CSRF-Token", current_csrf.clone()))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        current_refresh = extract_cookie(&resp, "refresh_token").unwrap();
+        current_csrf = extract_cookie(&resp, "csrf_token").unwrap();
+    }
+
+    // Stored tokens for this family must stay bounded: 1 active + at most 5 revoked = 6
+    let count = state
+        .refresh_token_repo
+        .count_for_family(&family_id)
+        .await
+        .unwrap();
+    assert_eq!(count, 6);
+
+    // Recent rotated token reuse is still detected (401 REFRESH_TOKEN_REUSED)
+    let reuse_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/refresh")
+            .cookie(Cookie::new("refresh_token", previous_refresh))
+            .cookie(Cookie::new("csrf_token", current_csrf.clone()))
+            .insert_header(("X-CSRF-Token", current_csrf.clone()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(reuse_resp.status(), StatusCode::UNAUTHORIZED);
+    let reuse_body: Value = test::read_body_json(reuse_resp).await;
+    assert_eq!(reuse_body["error"]["code"], "REFRESH_TOKEN_REUSED");
+
+    // Logout hard-deletes the entire token family (0 documents left behind)
+    let logout_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/logout")
+            .cookie(Cookie::new("refresh_token", current_refresh))
+            .cookie(Cookie::new("csrf_token", current_csrf.clone()))
+            .insert_header(("X-CSRF-Token", current_csrf))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(logout_resp.status(), StatusCode::OK);
+    assert_eq!(
+        state
+            .refresh_token_repo
+            .count_for_family(&family_id)
+            .await
+            .unwrap(),
+        0
+    );
+}

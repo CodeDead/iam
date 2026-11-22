@@ -31,7 +31,9 @@ BSON Data Access Objects (DAOs) and repository implementations live under [`src/
 - `token_hash`: **Unique** ascending index (`token_hash_unique`)
 - `user_id`: Ascending index (`user_id_idx`)
 - `family_id`: Ascending index (`family_id_idx`)
+- `family_id`, `revoked_at`: Compound index (`family_revoked_at_idx`) used to prune old rotated tokens to at most 5 per session family
 - `expires_at`: TTL index (`expires_at_ttl`, `expireAfterSeconds: 0`) for automatic MongoDB cleanup of expired tokens
+- `revoked_at`: TTL index (`revoked_at_ttl`, controlled by `REVOKED_TOKEN_RETENTION_SECONDS`, default `3600` seconds; `0` disables) for automatic cleanup of revoked tokens (active sessions with `revoked_at: null` are unaffected; logout and account deletion also hard-delete tokens immediately)
 
 ### 5. `audit_logs`
 - `created_at`: Descending index (`audit_created_at_desc`) and optional TTL index (`audit_created_at_ttl`, controlled by `AUDIT_LOG_RETENTION_DAYS`, default `90` days; `0` disables TTL)
@@ -43,7 +45,7 @@ BSON Data Access Objects (DAOs) and repository implementations live under [`src/
 
 Multi-document ACID transactions in MongoDB require a **Replica Set** (even a single-node replica set in local development, e.g., `rs0`).
 
-- **Transactional operation**: Atomic refresh-token rotation in `src/repository/auth/refresh_token_repository.rs` (revoking the consumed token and inserting its replacement within a single transaction, preventing concurrent token replay races).
-- **Coordinated referential & session operations**: Deleting a custom role or permission cleans up references in `users.roles` / `roles.permissions` and immediately invalidates the in-memory `PermissionCache`; updating user roles or disabling accounts revokes active refresh tokens and invalidates cached permissions.
+- **Transactional operation**: Atomic refresh-token rotation in `src/repository/auth/refresh_token_repository.rs` (revoking the consumed token and inserting its replacement within a single transaction, preventing concurrent token replay races), followed by per-family pruning that retains at most 5 recent revoked tokens per session for reuse detection.
+- **Coordinated referential & session operations**: Deleting a custom role or permission cleans up references in `users.roles` / `roles.permissions` and immediately invalidates the in-memory `PermissionCache`; updating user roles or disabling accounts increments `token_version` (invalidating active access JWTs), revokes active refresh tokens, and invalidates cached permissions; logging out hard-deletes the session's token family, and deleting a user or self-deleting an account hard-deletes all refresh tokens for that user.
 
 At startup, [`src/database/mongodb.rs`](../src/database/mongodb.rs) detects whether the connected MongoDB deployment is a replica set or sharded cluster. In `docker-compose.yml`, `mongo:latest` is pre-configured as a single-node replica set (`rs0`) so transactions work out of the box. Against standalone MongoDB instances without a replica set, the backend logs a startup warning and falls back to conditional atomic updates (production deployments MUST run a replica set).

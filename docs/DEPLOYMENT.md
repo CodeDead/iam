@@ -27,6 +27,7 @@ JWT_ISSUER=https://api.example.com
 JWT_AUDIENCE=https://admin.example.com
 JWT_ACCESS_TOKEN_TTL=900
 JWT_REFRESH_TOKEN_TTL=604800
+REVOKED_TOKEN_RETENTION_SECONDS=3600
 ```
 
 Never bake PEM keys into Docker images or commit them to source control. Mount them via Kubernetes Secrets, Vault, or AWS/GCP Secret Manager.
@@ -95,6 +96,8 @@ TRUST_PROXY_HEADERS=true
 
 For horizontally scaled multi-replica backend deployments, place an edge/gateway rate limiter (Envoy, Kong, Cloudflare, or Redis-backed rate limiting) in front of the API pods.
 
+Verify effective security flags in the startup log line `Starting HTTP server`, which prints `environment`, `trust_proxy_headers`, `rate_limit_enabled`, and `swagger_enabled`. (Boolean environment variables accept case-insensitive `true`/`false`, `1`/`0`, or `yes`/`no`.)
+
 ---
 
 ## 6. Health Checks & Observability
@@ -104,6 +107,7 @@ For horizontally scaled multi-replica backend deployments, place an edge/gateway
 - **Structured & audit logging:** Control verbosity via `RUST_LOG=info,auth_backend=info`. Every response emits an `X-Request-Id` header for end-to-end log correlation. User, role, permission, profile, and authentication events emit structured `auth_backend::audit` logs to stdout and are persisted in the MongoDB `audit_logs` collection (viewable via `GET /api/v1/audit-logs` and the `/audit-logs` UI with `audit_logs.read`).
 - **OpenAPI / Swagger UI:** Disabled by default when `APP_ENV=production` (set `ENABLE_SWAGGER_UI=true` only if you intentionally expose schema docs behind proxy authentication).
 - **Audit Log Retention:** Configured via `AUDIT_LOG_RETENTION_DAYS` (defaults to `90` days; `0` disables TTL expiration).
+- **Refresh Token Cleanup:** Configured via `REVOKED_TOKEN_RETENTION_SECONDS` (defaults to `3600` seconds / 1 hour; `0` disables the `revoked_at` TTL index). Rotation also prunes each session family to at most 5 recent revoked tokens, while logout and user/account deletion hard-delete refresh tokens immediately.
 
 ---
 
