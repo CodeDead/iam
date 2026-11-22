@@ -1,5 +1,6 @@
 import { NavLink, Stack } from '@mantine/core';
 import {
+  IconBuilding,
   IconDashboard,
   IconHistory,
   IconKey,
@@ -13,6 +14,12 @@ import { usePermissions } from '../../hooks/usePermissions';
 const NAV_ITEMS = [
   { label: 'Dashboard', path: '/', icon: IconDashboard, permission: null },
   { label: 'Users', path: '/users', icon: IconUsers, permission: 'users.read' },
+  {
+    label: 'Organisations',
+    path: '/organisations',
+    icon: IconBuilding,
+    permission: null,
+  },
   { label: 'Roles', path: '/roles', icon: IconShieldLock, permission: 'roles.read' },
   { label: 'Permissions', path: '/permissions', icon: IconKey, permission: 'permissions.read' },
   { label: 'Audit Logs', path: '/audit-logs', icon: IconHistory, permission: 'audit_logs.read' },

@@ -4,7 +4,10 @@ use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use crate::{
-    common::{pagination::SortOrder, validation::validate_password_strength},
+    common::{
+        pagination::SortOrder,
+        validation::{validate_name_trimmed, validate_password_strength},
+    },
     database::mongodb::bson_dt_to_chrono,
     repository::user::dao::user::{AccountStatus, User, UserProfileInfo},
     web::dto::roles::RoleSummary,
@@ -53,9 +56,9 @@ impl UserResponse {
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateUserRequest {
-    #[validate(length(min = 1, max = 80, message = "First name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub first_name: String,
-    #[validate(length(min = 1, max = 80, message = "Last name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub last_name: String,
     #[validate(email(message = "Must be a valid email address"))]
     pub email: String,
@@ -66,6 +69,7 @@ pub struct CreateUserRequest {
     #[serde(default)]
     pub email_verified: Option<bool>,
     #[serde(default)]
+    #[validate(length(max = 100, message = "Cannot assign more than 100 roles"))]
     pub role_ids: Vec<String>,
     #[serde(default)]
     pub profile: Option<UserProfileUpdateDto>,
@@ -74,9 +78,9 @@ pub struct CreateUserRequest {
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateUserRequest {
-    #[validate(length(min = 1, max = 80, message = "First name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub first_name: Option<String>,
-    #[validate(length(min = 1, max = 80, message = "Last name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub last_name: Option<String>,
     #[validate(email(message = "Must be a valid email address"))]
     pub email: Option<String>,
@@ -99,11 +103,13 @@ pub struct UserProfileUpdateDto {
 
 impl From<UserProfileUpdateDto> for UserProfileInfo {
     fn from(dto: UserProfileUpdateDto) -> Self {
+        let clean =
+            |opt: Option<String>| opt.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         Self {
-            phone: dto.phone.filter(|s| !s.trim().is_empty()),
-            job_title: dto.job_title.filter(|s| !s.trim().is_empty()),
-            department: dto.department.filter(|s| !s.trim().is_empty()),
-            bio: dto.bio.filter(|s| !s.trim().is_empty()),
+            phone: clean(dto.phone),
+            job_title: clean(dto.job_title),
+            department: clean(dto.department),
+            bio: clean(dto.bio),
         }
     }
 }
@@ -117,7 +123,11 @@ pub struct UpdateUserStatusRequest {
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateUserRolesRequest {
-    #[validate(length(min = 1, message = "A user must have at least one assigned role"))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "A user must have 1 to 100 assigned roles"
+    ))]
     pub role_ids: Vec<String>,
 }
 

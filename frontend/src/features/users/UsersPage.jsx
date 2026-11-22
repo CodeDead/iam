@@ -70,6 +70,7 @@ export function UsersPage() {
   const [editingUser, setEditingUser] = useState(null);
   const [detailUserId, setDetailUserId] = useState(null);
   const [rolesModalUser, setRolesModalUser] = useState(null);
+  const [busyStatusUserId, setBusyStatusUserId] = useState(null);
 
   const triggerReload = useCallback(() => setReloadTick((n) => n + 1), []);
 
@@ -84,6 +85,10 @@ export function UsersPage() {
           status: statusFilter,
         });
         if (active) {
+          if (page > 1 && data.total_pages < page) {
+            setPage(Math.max(1, data.total_pages));
+            return;
+          }
           setUsersData(data);
           setError(null);
         }
@@ -106,13 +111,17 @@ export function UsersPage() {
       .then((res) => {
         if (active) setRoles(res.items || []);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (active) setError(extractApiError(err, 'Failed to load roles catalog'));
+      });
     return () => {
       active = false;
     };
   }, [hasPermission]);
 
   const handleToggleStatus = async (targetUser) => {
+    if (busyStatusUserId === targetUser.id) return;
+    setBusyStatusUserId(targetUser.id);
     const nextStatus = targetUser.status === 'active' ? 'disabled' : 'active';
     try {
       await userService.updateStatus(targetUser.id, nextStatus);
@@ -130,6 +139,8 @@ export function UsersPage() {
         message: apiError.message,
         color: 'red',
       });
+    } finally {
+      setBusyStatusUserId(null);
     }
   };
 
@@ -138,10 +149,16 @@ export function UsersPage() {
       title: 'Delete user account',
       centered: true,
       children: (
-        <Text size="sm">
-          Are you sure you want to permanently delete <strong>{targetUser.email}</strong>? This
-          action cannot be undone and revokes all active sessions.
-        </Text>
+        <Stack gap="xs">
+          <Text size="sm">
+            Are you sure you want to permanently delete <strong>{targetUser.email}</strong>? This
+            action cannot be undone and revokes all active sessions.
+          </Text>
+          <Text size="xs" c="dimmed">
+            Any solo organisations where this user is the only active member will also be deleted.
+            Deletion is blocked if they are the last active owner of a shared organisation.
+          </Text>
+        </Stack>
       ),
       labels: { confirm: 'Delete user', cancel: 'Cancel' },
       confirmProps: { color: 'red' },
@@ -302,14 +319,15 @@ export function UsersPage() {
                                   </Menu.Item>
                                 )}
 
-                                {hasPermission('users.assign_roles') && (
-                                  <Menu.Item
-                                    leftSection={<IconShield size={15} />}
-                                    onClick={() => setRolesModalUser(u)}
-                                  >
-                                    Assign roles
-                                  </Menu.Item>
-                                )}
+                                {hasPermission('users.assign_roles') &&
+                                  (!isSelf || hasPermission('users.manage_self_roles')) && (
+                                    <Menu.Item
+                                      leftSection={<IconShield size={15} />}
+                                      onClick={() => setRolesModalUser(u)}
+                                    >
+                                      Assign roles
+                                    </Menu.Item>
+                                  )}
 
                                 {hasPermission('users.update') && !isSelf && (
                                   <Menu.Item
@@ -321,6 +339,7 @@ export function UsersPage() {
                                       )
                                     }
                                     color={u.status === 'active' ? 'orange' : 'green'}
+                                    disabled={busyStatusUserId === u.id}
                                     onClick={() => handleToggleStatus(u)}
                                   >
                                     {u.status === 'active' ? 'Disable account' : 'Enable account'}

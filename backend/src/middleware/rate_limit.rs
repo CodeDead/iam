@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 use crate::common::errors::AppError;
 
 const CF_CONNECTING_IP_HEADER: &str = "cf-connecting-ip";
+const X_REAL_IP_HEADER: &str = "x-real-ip";
 const MAX_TRACKED_KEYS: usize = 50_000;
 const SWEEP_THRESHOLD: usize = 1_024;
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -67,6 +68,17 @@ impl RateLimitMiddleware {
             window: Duration::from_secs(60),
             trust_proxy_headers,
             state: Arc::new(Mutex::new(RateLimitState::new())),
+        }
+    }
+
+    /// Returns a middleware handle sharing the same cross-worker bucket store with updated flags.
+    pub fn with_config(&self, enabled: bool, max_requests: u32, trust_proxy_headers: bool) -> Self {
+        Self {
+            enabled,
+            max_requests,
+            window: self.window,
+            trust_proxy_headers,
+            state: Arc::clone(&self.state),
         }
     }
 }
@@ -146,12 +158,19 @@ where
                 {
                     guard.sweep_stale(now, window);
                     if guard.buckets.len() >= MAX_TRACKED_KEYS {
-                        true
-                    } else {
-                        let timestamps = guard.buckets.entry(client_key).or_default();
-                        timestamps.push_back(now);
-                        false
+                        // Evict the least-recently-active key so a spoofed flood cannot deny service to new IPs.
+                        if let Some(oldest_key) = guard
+                            .buckets
+                            .iter()
+                            .min_by_key(|(_, dq)| dq.back().copied())
+                            .map(|(k, _)| k.clone())
+                        {
+                            guard.buckets.remove(&oldest_key);
+                        }
                     }
+                    let timestamps = guard.buckets.entry(client_key).or_default();
+                    timestamps.push_back(now);
+                    false
                 } else {
                     let timestamps = guard.buckets.entry(client_key).or_default();
                     while let Some(&front) = timestamps.front() {
@@ -185,9 +204,9 @@ where
 /// Extracts the caller's IP address for rate limiting and audit logging.
 ///
 /// When `trust_proxy_headers` is `true`, prefers Cloudflare's `CF-Connecting-IP`
-/// header (which Cloudflare Edge overwrites on every tunnelled request and Traefik
-/// forwards untouched), then falls back to standard forwarded headers via Actix's
-/// `realip_remote_addr()`, and finally the direct socket peer address.
+/// header, then standard `Forwarded`/`X-Forwarded-For` via Actix's `realip_remote_addr()`,
+/// then `X-Real-IP`, and finally the direct socket peer address. Only syntactically valid
+/// IP addresses are accepted from proxy headers.
 ///
 /// When `trust_proxy_headers` is `false`, ignores all proxy headers and uses only
 /// the direct socket peer address.
@@ -202,14 +221,19 @@ pub fn extract_client_ip(req: &HttpRequest, trust_proxy_headers: bool) -> Option
             return Some(cf_ip.to_string());
         }
 
-        if let Some(real_ip) = req.connection_info().realip_remote_addr() {
-            if let Some(parsed) = parse_ip_str(real_ip) {
-                return Some(parsed.to_string());
-            }
-            let trimmed = real_ip.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.chars().take(64).collect());
-            }
+        if let Some(real_ip) = req.connection_info().realip_remote_addr()
+            && let Some(parsed) = parse_ip_str(real_ip)
+        {
+            return Some(parsed.to_string());
+        }
+
+        if let Some(x_real_ip) = req
+            .headers()
+            .get(X_REAL_IP_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_ip_str)
+        {
+            return Some(x_real_ip.to_string());
         }
     }
 

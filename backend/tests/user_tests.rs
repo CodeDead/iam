@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use auth_backend::{
     app::configure_app_services,
-    database::seed::{ROLE_ADMIN, ROLE_SUPER_ADMIN, ROLE_USER},
+    database::seed::{ROLE_ADMIN, ROLE_MODERATOR, ROLE_SUPER_ADMIN, ROLE_USER},
     test_support::create_test_app_state,
 };
 
@@ -330,4 +330,53 @@ async fn user_crud_authorization_disabled_account_and_privilege_escalation_rules
     let stats_body: Value = test::read_body_json(sa_stats).await;
     assert!(stats_body["data"]["users"]["total"].as_u64().unwrap() >= 3);
     assert!(stats_body["data"]["total_roles"].as_u64().unwrap() >= 4);
+
+    // Moderator (holds users.update) CANNOT disable or edit an Administrator (higher privilege)
+    let moderator_role_id = state
+        .role_repo
+        .find_by_name(ROLE_MODERATOR)
+        .await
+        .unwrap()
+        .unwrap()
+        .id
+        .to_hex();
+    let create_mod = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/users")
+            .insert_header(("Authorization", format!("Bearer {sa_token}")))
+            .set_json(json!({
+                "first_name": "Mod",
+                "last_name": "One",
+                "email": "mod1@test.local",
+                "password": "ModPassword123!",
+                "role_ids": [moderator_role_id]
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(create_mod.status(), StatusCode::CREATED);
+    let (mod_token, _) = login_as!(app, "mod1@test.local", "ModPassword123!");
+
+    let mod_disable_admin = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/api/v1/users/{admin_id}/status"))
+            .insert_header(("Authorization", format!("Bearer {mod_token}")))
+            .set_json(json!({ "status": "disabled" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(mod_disable_admin.status(), StatusCode::FORBIDDEN);
+
+    let mod_edit_admin = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/users/{admin_id}"))
+            .insert_header(("Authorization", format!("Bearer {mod_token}")))
+            .set_json(json!({ "first_name": "Hijacked" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(mod_edit_admin.status(), StatusCode::FORBIDDEN);
 }

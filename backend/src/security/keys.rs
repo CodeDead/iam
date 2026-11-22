@@ -4,10 +4,17 @@ use ed25519_dalek::{
     SigningKey,
     pkcs8::{EncodePrivateKey, EncodePublicKey, spki::der::pem::LineEnding},
 };
-use jsonwebtoken::{DecodingKey, EncodingKey};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::{common::errors::AppError, config::Settings};
+
+#[derive(Serialize, Deserialize)]
+struct KeyPairProbeClaims {
+    sub: String,
+    exp: usize,
+}
 
 #[derive(Clone)]
 pub struct JwtKeyPair {
@@ -20,17 +27,25 @@ impl JwtKeyPair {
         let priv_path = settings.jwt.private_key_path.trim();
         let pub_path = settings.jwt.public_key_path.trim();
 
-        if !priv_path.is_empty() && !pub_path.is_empty() {
-            let private_pem = fs::read(priv_path).map_err(|e| {
-                AppError::internal(format!(
-                    "Failed to read JWT private key at {priv_path}: {e}"
-                ))
-            })?;
-            let public_pem = fs::read(pub_path).map_err(|e| {
-                AppError::internal(format!("Failed to read JWT public key at {pub_path}: {e}"))
-            })?;
+        match (!priv_path.is_empty(), !pub_path.is_empty()) {
+            (true, true) => {
+                let private_pem = fs::read(priv_path).map_err(|e| {
+                    AppError::internal(format!(
+                        "Failed to read JWT private key at {priv_path}: {e}"
+                    ))
+                })?;
+                let public_pem = fs::read(pub_path).map_err(|e| {
+                    AppError::internal(format!("Failed to read JWT public key at {pub_path}: {e}"))
+                })?;
 
-            return Self::from_ed_pem(&private_pem, &public_pem);
+                return Self::from_ed_pem(&private_pem, &public_pem);
+            }
+            (true, false) | (false, true) => {
+                return Err(AppError::internal(
+                    "Both JWT_PRIVATE_KEY_PATH and JWT_PUBLIC_KEY_PATH must be configured together",
+                ));
+            }
+            (false, false) => {}
         }
 
         if settings.is_production() {
@@ -50,6 +65,22 @@ impl JwtKeyPair {
             .map_err(|e| AppError::internal(format!("Invalid Ed25519 private key PEM: {e}")))?;
         let decoding = DecodingKey::from_ed_pem(public_pem)
             .map_err(|e| AppError::internal(format!("Invalid Ed25519 public key PEM: {e}")))?;
+
+        // Startup self-check: ensure private and public keys belong to the same Ed25519 keypair.
+        let probe = KeyPairProbeClaims {
+            sub: "keypair-self-check".to_string(),
+            exp: usize::MAX,
+        };
+        let token = encode(&Header::new(Algorithm::EdDSA), &probe, &encoding).map_err(|e| {
+            AppError::internal(format!("JWT private key failed signing self-check: {e}"))
+        })?;
+        let mut validation = Validation::new(Algorithm::EdDSA);
+        validation.validate_exp = false;
+        decode::<KeyPairProbeClaims>(&token, &decoding, &validation).map_err(|e| {
+            AppError::internal(format!(
+                "JWT public key does not match the configured private key: {e}"
+            ))
+        })?;
 
         Ok(Self { encoding, decoding })
     }

@@ -7,7 +7,14 @@ import { PermissionMatrix } from '../../components/forms/PermissionMatrix';
 import { roleService } from '../../services/roleService';
 import { extractApiError } from '../../utils/errors';
 
-export function RoleFormModal({ opened, onClose, role, allPermissions = [], onSaved }) {
+export function RoleFormModal({
+  opened,
+  onClose,
+  role,
+  allPermissions = [],
+  onSaved,
+  onPartialSaved,
+}) {
   const isEditing = Boolean(role);
   const [selectedPermissionIds, setSelectedPermissionIds] = useState(role?.permission_ids || []);
   const [submitting, setSubmitting] = useState(false);
@@ -27,6 +34,7 @@ export function RoleFormModal({ opened, onClose, role, allPermissions = [], onSa
   const handleSubmit = async (values) => {
     setError(null);
     setSubmitting(true);
+    let updatedRoleDetails = false;
     try {
       if (isEditing) {
         const updatePayload = { description: values.description.trim() };
@@ -34,6 +42,7 @@ export function RoleFormModal({ opened, onClose, role, allPermissions = [], onSa
           updatePayload.name = values.name.trim();
         }
         await roleService.update(role.id, updatePayload);
+        updatedRoleDetails = true;
         await roleService.updatePermissions(role.id, selectedPermissionIds);
         notifications.show({
           title: 'Role updated',
@@ -54,6 +63,9 @@ export function RoleFormModal({ opened, onClose, role, allPermissions = [], onSa
       }
       onSaved();
     } catch (err) {
+      if (updatedRoleDetails && onPartialSaved) {
+        onPartialSaved();
+      }
       setError(extractApiError(err, 'Failed to save role'));
     } finally {
       setSubmitting(false);

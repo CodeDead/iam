@@ -12,6 +12,7 @@ use crate::{
     middleware::{AuthenticatedUser, PermissionCache},
     repository::{
         auth::refresh_token_repository::RefreshTokenRepository,
+        organisation::organisation_repository::OrganisationRepository,
         permission::permission_repository::PermissionRepository,
         role::role_repository::RoleRepository,
         user::{
@@ -20,7 +21,13 @@ use crate::{
         },
     },
     security::password::{hash_password, verify_password},
-    services::audit::{AuditEvent, AuditService},
+    services::{
+        audit::{AuditEvent, AuditService},
+        organisations::{
+            finalize_user_memberships_on_account_delete,
+            validate_user_memberships_for_account_delete,
+        },
+    },
     web::dto::{
         profile::{ChangePasswordRequest, DeleteAccountRequest, UpdateProfileRequest},
         roles::RoleSummary,
@@ -34,16 +41,19 @@ pub struct ProfileService {
     role_repo: Arc<dyn RoleRepository>,
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+    organisation_repo: Arc<dyn OrganisationRepository>,
     permission_cache: PermissionCache,
     audit_service: AuditService,
 }
 
 impl ProfileService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         user_repo: Arc<dyn UserRepository>,
         role_repo: Arc<dyn RoleRepository>,
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+        organisation_repo: Arc<dyn OrganisationRepository>,
         permission_cache: PermissionCache,
         audit_service: AuditService,
     ) -> Self {
@@ -52,6 +62,7 @@ impl ProfileService {
             role_repo,
             permission_repo,
             refresh_token_repo,
+            organisation_repo,
             permission_cache,
             audit_service,
         }
@@ -159,7 +170,7 @@ impl ProfileService {
         actor.require_permission("profile.update")?;
         validate_dto(&req)?;
 
-        let mut user = self
+        let user = self
             .user_repo
             .find_by_id(actor.user_id)
             .await?
@@ -181,10 +192,19 @@ impl ProfileService {
             ));
         }
 
-        user.password_hash = hash_password(req.new_password).await?;
-        user.token_version = user.token_version.saturating_add(1);
-        user.updated_at = BsonDateTime::now();
-        self.user_repo.update(&user).await?;
+        let new_hash = hash_password(req.new_password).await?;
+        // Atomic $set + $inc prevents overwriting concurrent admin disables/role changes
+        // that occurred while Argon2id hashing was running.
+        let updated = self
+            .user_repo
+            .update_password(user.id, &new_hash, BsonDateTime::now())
+            .await?;
+        if !updated {
+            return Err(AppError::forbidden(
+                "ACCOUNT_INACTIVE",
+                "Account is no longer active and cannot update its password",
+            ));
+        }
         self.refresh_token_repo.revoke_all_for_user(user.id).await?;
         self.permission_cache.invalidate_user(user.id).await;
 
@@ -241,9 +261,17 @@ impl ProfileService {
             }
         }
 
+        validate_user_memberships_for_account_delete(&self.organisation_repo, user.id).await?;
+        self.user_repo.delete(user.id).await?;
+        finalize_user_memberships_on_account_delete(
+            &self.organisation_repo,
+            &self.audit_service,
+            actor,
+            user.id,
+        )
+        .await?;
         self.refresh_token_repo.delete_all_for_user(user.id).await?;
         self.permission_cache.invalidate_user(user.id).await;
-        self.user_repo.delete(user.id).await?;
 
         self.audit_service
             .record(

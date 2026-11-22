@@ -191,7 +191,7 @@ impl AuditLogRepository for MongoAuditLogRepository {
                     "admin_changes": {
                         "$sum": {
                             "$cond": [
-                                { "$in": ["$resource_type", ["user", "role", "permission"]] },
+                                { "$in": ["$resource_type", ["user", "role", "permission", "organisation"]] },
                                 1,
                                 0
                             ]

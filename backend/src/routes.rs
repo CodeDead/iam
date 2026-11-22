@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, guard, web};
+use actix_web::{guard, web};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -10,40 +10,28 @@ use crate::{
     openapi::ApiDoc,
     web::controller::{
         audit as audit_ctrl, auth as auth_ctrl, dashboard as dashboard_ctrl, health,
-        permissions as perm_ctrl, profile as profile_ctrl, roles as role_ctrl, users as user_ctrl,
+        organisations as org_ctrl, permissions as perm_ctrl, profile as profile_ctrl,
+        roles as role_ctrl, users as user_ctrl,
     },
 };
 
-pub fn configure_routes(cfg: &mut web::ServiceConfig, settings: &Settings) {
-    let rate_limit = &settings.rate_limit;
-    let auth_limiter = RateLimitMiddleware::per_minute(
-        rate_limit.enabled,
-        rate_limit.auth_requests_per_minute,
-        rate_limit.trust_proxy_headers,
-    );
-    let api_limiter = RateLimitMiddleware::per_minute(
-        rate_limit.enabled,
-        rate_limit.api_requests_per_minute,
-        rate_limit.trust_proxy_headers,
-    );
+pub fn configure_routes(
+    cfg: &mut web::ServiceConfig,
+    settings: &Settings,
+    auth_limiter: RateLimitMiddleware,
+    api_limiter: RateLimitMiddleware,
+) {
     let swagger_enabled = settings.is_swagger_enabled();
     let openapi = swagger_enabled.then(ApiDoc::openapi);
 
     cfg.service(web::resource("/health").route(web::get().to(health::liveness)))
         .service(web::resource("/health/ready").route(web::get().to(health::readiness)));
 
-    if let Some(ref doc) = openapi {
-        cfg.service(SwaggerUi::new("/swagger-ui/{_:.*}").url("/api/v1/openapi.json", doc.clone()));
+    if let Some(doc) = openapi {
+        cfg.service(SwaggerUi::new("/swagger-ui/{_:.*}").url("/api/v1/openapi.json", doc));
     }
 
-    let mut api_scope = web::scope("/api/v1").wrap(api_limiter);
-    if let Some(doc) = openapi {
-        api_scope =
-            api_scope.service(web::resource("/openapi.json").route(web::get().to(move || {
-                let spec = doc.clone();
-                async move { HttpResponse::Ok().json(spec) }
-            })));
-    }
+    let api_scope = web::scope("/api/v1").wrap(api_limiter);
 
     cfg.service(
         api_scope
@@ -151,6 +139,15 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, settings: &Settings) {
                             .guard(guard::Get())
                             .wrap(require_permission("users.read"))
                             .to(user_ctrl::get_user_permissions),
+                    )
+                    .service(
+                        web::resource("/{id}/organisations")
+                            .guard(guard::Get())
+                            .wrap(require_all_permissions(&[
+                                "users.read",
+                                "organisations.read",
+                            ]))
+                            .to(user_ctrl::get_user_organisations),
                     ),
             )
             // Protected role administration endpoints
@@ -245,6 +242,67 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, settings: &Settings) {
                             .guard(guard::Get())
                             .wrap(require_all_permissions(&["permissions.read", "roles.read"]))
                             .to(perm_ctrl::get_permission_roles),
+                    ),
+            )
+            // Protected organisation endpoints (global RBAC or org-scoped owner/admin enforced in service)
+            .service(
+                web::scope("/organisations")
+                    .wrap(JwtAuthMiddleware)
+                    .service(
+                        web::resource("/me")
+                            .guard(guard::Get())
+                            .to(org_ctrl::list_my_organisations),
+                    )
+                    .service(
+                        web::resource("")
+                            .guard(guard::Get())
+                            .wrap(require_permission("organisations.read"))
+                            .to(org_ctrl::list_organisations),
+                    )
+                    .service(
+                        web::resource("")
+                            .guard(guard::Post())
+                            .to(org_ctrl::create_organisation),
+                    )
+                    .service(
+                        web::resource("/{id}")
+                            .guard(guard::Get())
+                            .to(org_ctrl::get_organisation),
+                    )
+                    .service(
+                        web::resource("/{id}")
+                            .guard(guard::Put())
+                            .to(org_ctrl::update_organisation),
+                    )
+                    .service(
+                        web::resource("/{id}")
+                            .guard(guard::Delete())
+                            .to(org_ctrl::delete_organisation),
+                    )
+                    .service(
+                        web::resource("/{id}/accept")
+                            .guard(guard::Post())
+                            .to(org_ctrl::accept_organisation_invitation),
+                    )
+                    .service(
+                        web::resource("/{id}/leave")
+                            .guard(guard::Post())
+                            .to(org_ctrl::leave_organisation),
+                    )
+                    .service(
+                        web::resource("/{id}/members")
+                            .guard(guard::Post())
+                            .to(org_ctrl::add_organisation_member),
+                    )
+                    .service(
+                        web::resource("/{id}/members/{user_id}")
+                            .guard(guard::Patch())
+                            .to(org_ctrl::update_organisation_member),
+                    )
+                    .service(
+                        web::resource("/{id}/members/{user_id}")
+                            .guard(guard::Delete())
+                            .to(org_ctrl::remove_organisation_member),
                     ),
             )
             // Protected audit log endpoints

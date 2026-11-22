@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::web::dto::organisations::UserOrganisationSummary;
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserStats {
     pub total: u64,
@@ -83,8 +85,29 @@ pub struct AuditStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OrganisationSizeItem {
+    pub id: String,
+    pub name: String,
+    pub member_count: u64,
+    pub active_member_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OrganisationStats {
+    pub total: u64,
+    pub new_last_7_days: u64,
+    pub total_memberships: u64,
+    pub active_memberships: u64,
+    pub invited_memberships: u64,
+    pub suspended_memberships: u64,
+    pub largest_organisations: Vec<OrganisationSizeItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardStatsResponse {
     pub my_active_sessions: u64,
+    #[serde(default)]
+    pub my_organisations: Vec<UserOrganisationSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub users: Option<UserStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,6 +118,8 @@ pub struct DashboardStatsResponse {
     pub total_permissions: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<PermissionStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organisations: Option<OrganisationStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audit: Option<AuditStats>,
 }

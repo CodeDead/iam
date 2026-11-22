@@ -5,6 +5,7 @@ use crate::{
     common::{errors::AppError, pagination::PaginatedResponse, responses::ApiResponse},
     middleware::AuthenticatedUser,
     web::dto::{
+        organisations::UserOrganisationSummary,
         permissions::PermissionResponse,
         roles::RoleSummary,
         users::{
@@ -136,7 +137,7 @@ pub async fn update_user_status(
     responses(
         (status = 204, description = "User deleted"),
         (status = 403, description = "Forbidden"),
-        (status = 409, description = "Cannot delete last active Super Administrator")
+        (status = 409, description = "Cannot delete last active Super Administrator or last active organisation owner")
     )
 )]
 pub async fn delete_user(
@@ -214,5 +215,29 @@ pub async fn get_user_permissions(
     Ok(ApiResponse::ok(
         perms,
         "User effective permissions retrieved successfully",
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{id}/organisations",
+    tag = "Users",
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "User ObjectId")),
+    responses(
+        (status = 200, description = "Organisation memberships for user", body = ApiResponse<Vec<UserOrganisationSummary>>),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn get_user_organisations(
+    actor: AuthenticatedUser,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> Result<HttpResponse, AppError> {
+    let orgs = state.user_service.get_organisations(&actor, &path).await?;
+    Ok(ApiResponse::ok(
+        orgs,
+        "User organisations retrieved successfully",
     ))
 }

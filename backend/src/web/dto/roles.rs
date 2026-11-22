@@ -4,8 +4,13 @@ use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use crate::{
-    common::pagination::SortOrder, database::mongodb::bson_dt_to_chrono,
-    repository::role::dao::role::Role, web::dto::permissions::PermissionResponse,
+    common::{
+        pagination::SortOrder,
+        validation::{validate_description_trimmed, validate_role_name_trimmed},
+    },
+    database::mongodb::bson_dt_to_chrono,
+    repository::role::dao::role::Role,
+    web::dto::permissions::PermissionResponse,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -58,34 +63,28 @@ impl RoleResponse {
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateRoleRequest {
-    #[validate(length(min = 2, max = 80, message = "Role name must be 2 to 80 characters"))]
+    #[validate(custom(function = "validate_role_name_trimmed"))]
     pub name: String,
-    #[validate(length(
-        min = 1,
-        max = 255,
-        message = "Description must be 1 to 255 characters"
-    ))]
+    #[validate(custom(function = "validate_description_trimmed"))]
     pub description: String,
     #[serde(default)]
+    #[validate(length(max = 200, message = "Cannot assign more than 200 permissions"))]
     pub permission_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateRoleRequest {
-    #[validate(length(min = 2, max = 80, message = "Role name must be 2 to 80 characters"))]
+    #[validate(custom(function = "validate_role_name_trimmed"))]
     pub name: Option<String>,
-    #[validate(length(
-        min = 1,
-        max = 255,
-        message = "Description must be 1 to 255 characters"
-    ))]
+    #[validate(custom(function = "validate_description_trimmed"))]
     pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateRolePermissionsRequest {
+    #[validate(length(max = 200, message = "Cannot assign more than 200 permissions"))]
     pub permission_ids: Vec<String>,
 }
 

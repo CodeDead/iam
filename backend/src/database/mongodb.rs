@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use mongodb::{
     Client, Database, IndexModel,
     bson::{DateTime as BsonDateTime, Document, doc},
-    options::{ClientOptions, IndexOptions},
+    options::{ClientOptions, Collation, CollationStrength, IndexOptions},
 };
 use tracing::{info, warn};
 
@@ -14,6 +14,7 @@ use crate::{
     repository::{
         audit::audit_log_repository::AUDIT_LOGS_COLLECTION,
         auth::refresh_token_repository::REFRESH_TOKENS_COLLECTION,
+        organisation::organisation_repository::ORGANISATIONS_COLLECTION,
         permission::permission_repository::PERMISSIONS_COLLECTION,
         role::role_repository::ROLES_COLLECTION, user::user_repository::USERS_COLLECTION,
     },
@@ -262,7 +263,56 @@ impl MongoDb {
                     );
                 }
             }
+        } else {
+            let _ = refresh_tokens.drop_index("revoked_at_ttl").await;
         }
+
+        // Organisations collection indexes
+        let organisations = self
+            .database
+            .collection::<Document>(ORGANISATIONS_COLLECTION);
+        let org_name_index = IndexModel::builder()
+            .keys(doc! { "name": 1 })
+            .options(
+                IndexOptions::builder()
+                    .unique(true)
+                    .collation(case_insensitive_collation())
+                    .name("org_name_unique".to_string())
+                    .build(),
+            )
+            .build();
+        if let Err(err) = organisations.create_index(org_name_index.clone()).await {
+            // Upgrade legacy case-sensitive org_name_unique index to case-insensitive collation.
+            let _ = organisations.drop_index("org_name_unique").await;
+            if let Err(retry_err) = organisations.create_index(org_name_index).await {
+                warn!(
+                    initial_error = %err,
+                    retry_error = %retry_err,
+                    "Failed to create case-insensitive org_name_unique index"
+                );
+                return Err(retry_err.into());
+            }
+        }
+        organisations
+            .create_indexes(vec![
+                IndexModel::builder()
+                    .keys(doc! { "members.user_id": 1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("org_members_user_id_idx".to_string())
+                            .build(),
+                    )
+                    .build(),
+                IndexModel::builder()
+                    .keys(doc! { "created_at": -1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("org_created_at_desc".to_string())
+                            .build(),
+                    )
+                    .build(),
+            ])
+            .await?;
 
         // Audit logs collection indexes
         let audit_logs = self.database.collection::<Document>(AUDIT_LOGS_COLLECTION);
@@ -335,11 +385,20 @@ impl MongoDb {
                     );
                 }
             }
+        } else {
+            let _ = audit_logs.drop_index("audit_created_at_ttl").await;
         }
 
         info!("MongoDB indexes verified");
         Ok(())
     }
+}
+
+pub fn case_insensitive_collation() -> Collation {
+    Collation::builder()
+        .locale("en")
+        .strength(CollationStrength::Secondary)
+        .build()
 }
 
 async fn detect_transaction_support(client: &Client) -> bool {

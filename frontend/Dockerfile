@@ -6,19 +6,29 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-ARG VITE_API_BASE_URL=http://localhost:8080/api/v1
+ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 COPY index.html vite.config.js postcss.config.cjs ./
 COPY public ./public
 COPY src ./src
+COPY security-headers.inc ./security-headers.inc
 
-RUN npm run build
+RUN npm run build && node -e ' \
+  const fs = require("fs"); \
+  const raw = (process.env.VITE_API_BASE_URL || "").trim(); \
+  let extra = ""; \
+  if (/^https?:\/\//i.test(raw)) { \
+    try { extra = " " + new URL(raw).origin; } catch {} \
+  } \
+  const tpl = fs.readFileSync("security-headers.inc", "utf8"); \
+  fs.writeFileSync("security-headers.rendered.inc", tpl.replace("__CSP_CONNECT_EXTRA__", extra)); \
+'
 
 # ---- Runtime Stage (Non-Root Unprivileged Nginx) ----
 FROM nginxinc/nginx-unprivileged:stable-alpine AS runtime
 
-COPY security-headers.inc /etc/nginx/conf.d/security-headers.inc
+COPY --from=builder /app/security-headers.rendered.inc /etc/nginx/conf.d/security-headers.inc
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 

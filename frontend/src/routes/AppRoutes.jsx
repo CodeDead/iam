@@ -5,6 +5,7 @@ import { LoginPage } from '../features/auth/LoginPage';
 import { RegisterPage } from '../features/auth/RegisterPage';
 import { UnauthorizedPage } from '../features/auth/UnauthorizedPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
+import { OrganisationsPage } from '../features/organisations/OrganisationsPage';
 import { PermissionsPage } from '../features/permissions/PermissionsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { RolesPage } from '../features/roles/RolesPage';
@@ -40,6 +41,7 @@ export function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route path="/organisations" element={<OrganisationsPage />} />
         <Route
           path="/roles"
           element={

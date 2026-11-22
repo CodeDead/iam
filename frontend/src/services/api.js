@@ -13,6 +13,7 @@ const AUTH_BROADCAST_CHANNEL_NAME = 'codedead-iam-auth-sync';
 let authBroadcastChannel = null;
 let lastSyncedSession = null;
 let lastSyncedAt = 0;
+let lastLoggedOutAt = 0;
 const syncWaiters = new Set();
 
 let sessionCallbacks = {
@@ -47,6 +48,7 @@ function handleBroadcastMessage(event) {
   } else if (message.type === 'AUTH_LOGGED_OUT') {
     lastSyncedSession = null;
     lastSyncedAt = 0;
+    lastLoggedOutAt = Date.now();
     clearAuthTokens();
     if (sessionCallbacks.onExpired) {
       sessionCallbacks.onExpired();
@@ -86,6 +88,7 @@ export function broadcastAuthRefreshed(data) {
 export function broadcastAuthLoggedOut() {
   lastSyncedSession = null;
   lastSyncedAt = 0;
+  lastLoggedOutAt = Date.now();
   const channel = ensureBroadcastChannel();
   if (!channel) {
     return;
@@ -128,6 +131,7 @@ export function clearAuthTokens() {
 export function resetCrossTabSyncState() {
   lastSyncedSession = null;
   lastSyncedAt = 0;
+  lastLoggedOutAt = 0;
   syncWaiters.clear();
   if (authBroadcastChannel) {
     try {
@@ -245,6 +249,9 @@ async function runCoordinatedRefresh() {
   // Another tab is actively rotating the refresh cookie. Wait for the lock to release
   // and reuse the freshly broadcast access token if one arrives, avoiding duplicate /refresh calls.
   return webLocks.request(AUTH_REFRESH_LOCK_NAME, async () => {
+    if (lastLoggedOutAt >= startedAt) {
+      throw new Error('Session signed out in another tab');
+    }
     if (
       lastSyncedSession?.access_token &&
       lastSyncedAt >= startedAt &&
@@ -253,11 +260,11 @@ async function runCoordinatedRefresh() {
       return lastSyncedSession;
     }
 
-    const syncedEvent = await waitForBroadcastSync(50);
+    const syncedEvent = await waitForBroadcastSync(250);
     if (syncedEvent?.type === 'refreshed' && syncedEvent.data?.access_token) {
       return syncedEvent.data;
     }
-    if (syncedEvent?.type === 'logged_out') {
+    if (syncedEvent?.type === 'logged_out' || lastLoggedOutAt >= startedAt) {
       throw new Error('Session signed out in another tab');
     }
 
@@ -360,6 +367,18 @@ apiClient.interceptors.response.use(
     }
 
     originalRequest._retry = true;
+
+    // If another tab or concurrent request already rotated the access token while this
+    // request was in flight, retry immediately without triggering a redundant /refresh call.
+    const requestAuthHeader =
+      originalRequest.headers?.Authorization || originalRequest.headers?.authorization;
+    if (accessToken && requestAuthHeader && requestAuthHeader !== `Bearer ${accessToken}`) {
+      originalRequest.headers = {
+        ...(originalRequest.headers || {}),
+        Authorization: `Bearer ${accessToken}`,
+      };
+      return apiClient(originalRequest);
+    }
 
     try {
       const data = await performTokenRefresh();

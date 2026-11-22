@@ -1,7 +1,8 @@
-use std::env;
+use std::{env, fs};
 
 use config::{Config, File};
 use serde::Deserialize;
+use tracing::warn;
 
 use crate::common::errors::AppError;
 
@@ -197,6 +198,19 @@ impl Settings {
             ));
         }
 
+        let normalized_same_site = self.cookie.same_site.trim().to_ascii_lowercase();
+        if !matches!(normalized_same_site.as_str(), "lax" | "strict" | "none") {
+            return Err(AppError::Internal(format!(
+                "COOKIE_SAME_SITE must be one of Lax, Strict, or None (got '{}')",
+                self.cookie.same_site
+            )));
+        }
+        if normalized_same_site == "none" && !self.cookie.secure {
+            return Err(AppError::Internal(
+                "COOKIE_SECURE must be true when COOKIE_SAME_SITE=None".to_string(),
+            ));
+        }
+
         if self.is_production() {
             if self.jwt.private_key_path.trim().is_empty()
                 || self.jwt.public_key_path.trim().is_empty()
@@ -217,12 +231,40 @@ impl Settings {
     }
 }
 
-fn parse_bool_env(val: &str) -> Option<bool> {
+fn parse_bool_env(name: &str, val: &str) -> Option<bool> {
     match val.trim().to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" => Some(true),
         "false" | "0" | "no" => Some(false),
-        _ => None,
+        _ => {
+            warn!(env_var = name, value = %val, "Ignoring invalid boolean environment variable");
+            None
+        }
     }
+}
+
+fn parse_num_env<T: std::str::FromStr>(name: &str, val: &str) -> Option<T> {
+    match val.trim().parse::<T>() {
+        Ok(parsed) => Some(parsed),
+        Err(_) => {
+            warn!(env_var = name, value = %val, "Ignoring invalid numeric environment variable");
+            None
+        }
+    }
+}
+
+fn read_secret_env(var_name: &str, file_var_name: &str) -> Option<String> {
+    if let Ok(path) = env::var(file_var_name) {
+        let trimmed_path = path.trim();
+        if !trimmed_path.is_empty() {
+            match fs::read_to_string(trimmed_path) {
+                Ok(content) => return Some(content.trim().to_string()),
+                Err(err) => {
+                    warn!(env_var = file_var_name, path = %trimmed_path, error = %err, "Failed to read secret file");
+                }
+            }
+        }
+    }
+    env::var(var_name).ok()
 }
 
 fn apply_env_overrides(settings: &mut Settings) {
@@ -230,38 +272,41 @@ fn apply_env_overrides(settings: &mut Settings) {
         settings.app.environment = val.trim().to_string();
     }
     if let Ok(val) = env::var("REQUIRE_EMAIL_VERIFICATION")
-        && let Some(parsed) = parse_bool_env(&val)
+        && let Some(parsed) = parse_bool_env("REQUIRE_EMAIL_VERIFICATION", &val)
     {
         settings.app.require_email_verification = parsed;
     }
     if let Ok(val) = env::var("PERMISSION_CACHE_TTL_SECONDS")
-        && let Ok(parsed) = val.trim().parse::<u64>()
+        && let Some(parsed) = parse_num_env::<u64>("PERMISSION_CACHE_TTL_SECONDS", &val)
     {
         settings.app.permission_cache_ttl_seconds = parsed;
     }
     if let Ok(val) = env::var("ENABLE_SWAGGER_UI")
-        && let Some(parsed) = parse_bool_env(&val)
+        && let Some(parsed) = parse_bool_env("ENABLE_SWAGGER_UI", &val)
     {
         settings.app.enable_swagger_ui = Some(parsed);
     }
     if let Ok(val) = env::var("AUDIT_LOG_RETENTION_DAYS")
-        && let Ok(parsed) = val.trim().parse::<u64>()
+        && let Some(parsed) = parse_num_env::<u64>("AUDIT_LOG_RETENTION_DAYS", &val)
     {
         settings.app.audit_log_retention_days = parsed;
     }
 
     if let Ok(val) = env::var("SERVER_HOST") {
-        settings.server.host = val;
+        settings.server.host = val.trim().to_string();
     }
     if let Ok(val) = env::var("SERVER_PORT")
-        && let Ok(parsed) = val.parse::<u16>()
+        && let Some(parsed) = parse_num_env::<u16>("SERVER_PORT", &val)
     {
         settings.server.port = parsed;
     }
     if let Ok(val) = env::var("FRONTEND_URL") {
-        settings.server.frontend_url = val.clone();
-        if !settings.server.allowed_origins.contains(&val) {
-            settings.server.allowed_origins.push(val);
+        let trimmed = val.trim().to_string();
+        if !trimmed.is_empty() {
+            settings.server.frontend_url = trimmed.clone();
+            // Replace default localhost allowlist when FRONTEND_URL is explicitly configured;
+            // ALLOWED_ORIGINS below takes precedence if also set.
+            settings.server.allowed_origins = vec![trimmed];
         }
     }
     if let Ok(val) = env::var("ALLOWED_ORIGINS") {
@@ -275,8 +320,11 @@ fn apply_env_overrides(settings: &mut Settings) {
         }
     }
 
-    if let Ok(val) = env::var("MONGODB_URI") {
-        settings.mongodb.uri = val;
+    if let Some(val) = read_secret_env("MONGODB_URI", "MONGODB_URI_FILE") {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            settings.mongodb.uri = trimmed.to_string();
+        }
     }
     if let Ok(val) = env::var("MONGODB_DATABASE") {
         let trimmed = val.trim();
@@ -284,37 +332,47 @@ fn apply_env_overrides(settings: &mut Settings) {
             settings.mongodb.database = trimmed.to_string();
         }
     }
+    if let Ok(val) = env::var("MONGODB_MAX_POOL_SIZE")
+        && let Some(parsed) = parse_num_env::<u32>("MONGODB_MAX_POOL_SIZE", &val)
+    {
+        settings.mongodb.max_pool_size = parsed;
+    }
+    if let Ok(val) = env::var("MONGODB_MIN_POOL_SIZE")
+        && let Some(parsed) = parse_num_env::<u32>("MONGODB_MIN_POOL_SIZE", &val)
+    {
+        settings.mongodb.min_pool_size = parsed;
+    }
 
     if let Ok(val) = env::var("JWT_ISSUER") {
-        settings.jwt.issuer = val;
+        settings.jwt.issuer = val.trim().to_string();
     }
     if let Ok(val) = env::var("JWT_AUDIENCE") {
-        settings.jwt.audience = val;
+        settings.jwt.audience = val.trim().to_string();
     }
     if let Ok(val) = env::var("JWT_ACCESS_TOKEN_TTL")
-        && let Ok(parsed) = val.parse::<i64>()
+        && let Some(parsed) = parse_num_env::<i64>("JWT_ACCESS_TOKEN_TTL", &val)
     {
         settings.jwt.access_token_ttl = parsed;
     }
     if let Ok(val) = env::var("JWT_REFRESH_TOKEN_TTL")
-        && let Ok(parsed) = val.trim().parse::<i64>()
+        && let Some(parsed) = parse_num_env::<i64>("JWT_REFRESH_TOKEN_TTL", &val)
     {
         settings.jwt.refresh_token_ttl = parsed;
     }
     if let Ok(val) = env::var("REVOKED_TOKEN_RETENTION_SECONDS")
-        && let Ok(parsed) = val.trim().parse::<u64>()
+        && let Some(parsed) = parse_num_env::<u64>("REVOKED_TOKEN_RETENTION_SECONDS", &val)
     {
         settings.jwt.revoked_token_retention_seconds = parsed;
     }
     if let Ok(val) = env::var("JWT_PRIVATE_KEY_PATH") {
-        settings.jwt.private_key_path = val;
+        settings.jwt.private_key_path = val.trim().to_string();
     }
     if let Ok(val) = env::var("JWT_PUBLIC_KEY_PATH") {
-        settings.jwt.public_key_path = val;
+        settings.jwt.public_key_path = val.trim().to_string();
     }
 
     if let Ok(val) = env::var("COOKIE_SECURE")
-        && let Some(parsed) = parse_bool_env(&val)
+        && let Some(parsed) = parse_bool_env("COOKIE_SECURE", &val)
     {
         settings.cookie.secure = parsed;
     }
@@ -326,36 +384,39 @@ fn apply_env_overrides(settings: &mut Settings) {
     }
 
     if let Ok(val) = env::var("RATE_LIMIT_ENABLED")
-        && let Some(parsed) = parse_bool_env(&val)
+        && let Some(parsed) = parse_bool_env("RATE_LIMIT_ENABLED", &val)
     {
         settings.rate_limit.enabled = parsed;
     }
     if let Ok(val) = env::var("RATE_LIMIT_AUTH_PER_MINUTE")
-        && let Ok(parsed) = val.trim().parse::<u32>()
+        && let Some(parsed) = parse_num_env::<u32>("RATE_LIMIT_AUTH_PER_MINUTE", &val)
     {
         settings.rate_limit.auth_requests_per_minute = parsed;
     }
     if let Ok(val) = env::var("RATE_LIMIT_API_PER_MINUTE")
-        && let Ok(parsed) = val.trim().parse::<u32>()
+        && let Some(parsed) = parse_num_env::<u32>("RATE_LIMIT_API_PER_MINUTE", &val)
     {
         settings.rate_limit.api_requests_per_minute = parsed;
     }
     if let Ok(val) = env::var("TRUST_PROXY_HEADERS")
-        && let Some(parsed) = parse_bool_env(&val)
+        && let Some(parsed) = parse_bool_env("TRUST_PROXY_HEADERS", &val)
     {
         settings.rate_limit.trust_proxy_headers = parsed;
     }
 
     if let Ok(val) = env::var("BOOTSTRAP_SUPER_ADMIN_EMAIL") {
-        settings.bootstrap.super_admin_email = val;
+        settings.bootstrap.super_admin_email = val.trim().to_string();
     }
-    if let Ok(val) = env::var("BOOTSTRAP_SUPER_ADMIN_PASSWORD") {
+    if let Some(val) = read_secret_env(
+        "BOOTSTRAP_SUPER_ADMIN_PASSWORD",
+        "BOOTSTRAP_SUPER_ADMIN_PASSWORD_FILE",
+    ) {
         settings.bootstrap.super_admin_password = val;
     }
     if let Ok(val) = env::var("BOOTSTRAP_SUPER_ADMIN_FIRST_NAME") {
-        settings.bootstrap.super_admin_first_name = val;
+        settings.bootstrap.super_admin_first_name = val.trim().to_string();
     }
     if let Ok(val) = env::var("BOOTSTRAP_SUPER_ADMIN_LAST_NAME") {
-        settings.bootstrap.super_admin_last_name = val;
+        settings.bootstrap.super_admin_last_name = val.trim().to_string();
     }
 }

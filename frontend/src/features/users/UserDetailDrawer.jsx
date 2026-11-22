@@ -1,21 +1,46 @@
 import { useEffect, useState } from 'react';
-import { Badge, Divider, Drawer, Group, Skeleton, Stack, Text, Title } from '@mantine/core';
+import { Anchor, Badge, Divider, Drawer, Group, Skeleton, Stack, Text, Title } from '@mantine/core';
+import { Link } from 'react-router-dom';
 import { ErrorAlert } from '../../components/common/ErrorAlert';
 import { StatusBadge } from '../../components/common/StatusBadge';
+import { usePermissions } from '../../hooks/usePermissions';
 import { userService } from '../../services/userService';
 import { extractApiError } from '../../utils/errors';
-import { formatDateTime, formatUserName } from '../../utils/formatters';
+import {
+  capitalize,
+  formatDateTime,
+  formatUserName,
+  getMemberStatusColor,
+} from '../../utils/formatters';
 
 export function UserDetailDrawer({ userId, onClose }) {
-  const [state, setState] = useState({ loadedId: null, user: null, perms: [], error: null });
+  const { hasPermission } = usePermissions();
+  const canReadOrgs = hasPermission('organisations.read');
+  const [state, setState] = useState({
+    loadedId: null,
+    user: null,
+    perms: [],
+    orgs: [],
+    error: null,
+  });
 
   useEffect(() => {
     if (!userId) return;
     let active = true;
-    Promise.all([userService.getById(userId), userService.getEffectivePermissions(userId)])
-      .then(([u, perms]) => {
+    Promise.all([
+      userService.getById(userId),
+      userService.getEffectivePermissions(userId),
+      canReadOrgs ? userService.getOrganisations(userId) : Promise.resolve([]),
+    ])
+      .then(([u, perms, orgs]) => {
         if (active) {
-          setState({ loadedId: userId, user: u, perms: perms || [], error: null });
+          setState({
+            loadedId: userId,
+            user: u,
+            perms: perms || [],
+            orgs: orgs || [],
+            error: null,
+          });
         }
       })
       .catch((err) => {
@@ -24,6 +49,7 @@ export function UserDetailDrawer({ userId, onClose }) {
             loadedId: userId,
             user: null,
             perms: [],
+            orgs: [],
             error: extractApiError(err, 'Failed to load user details'),
           });
         }
@@ -32,11 +58,12 @@ export function UserDetailDrawer({ userId, onClose }) {
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [userId, canReadOrgs]);
 
   const loading = Boolean(userId) && state.loadedId !== userId;
   const user = state.loadedId === userId ? state.user : null;
   const effectivePerms = state.loadedId === userId ? state.perms : [];
+  const organisations = state.loadedId === userId ? state.orgs : [];
   const error = state.loadedId === userId ? state.error : null;
 
   return (
@@ -118,6 +145,44 @@ export function UserDetailDrawer({ userId, onClose }) {
                 ))}
               </Group>
             </div>
+
+            {canReadOrgs && (
+              <div>
+                <Text size="sm" fw={600} mb="xs">
+                  Organisations ({organisations.length})
+                </Text>
+                {organisations.length === 0 ? (
+                  <Text size="xs" c="dimmed">
+                    Not a member of any organisation.
+                  </Text>
+                ) : (
+                  <Stack gap="xs">
+                    {organisations.map((org) => (
+                      <Group key={org.id} justify="space-between" gap="xs" wrap="nowrap">
+                        <Anchor
+                          component={Link}
+                          to={`/organisations?search=${encodeURIComponent(org.name)}`}
+                          onClick={onClose}
+                          size="sm"
+                          fw={500}
+                          truncate
+                        >
+                          {org.name}
+                        </Anchor>
+                        <Group gap={6} wrap="nowrap">
+                          <Badge size="xs" variant="light" color="indigo">
+                            {capitalize(org.role || 'member')}
+                          </Badge>
+                          <Badge size="xs" variant="light" color={getMemberStatusColor(org.status)}>
+                            {capitalize(org.status)}
+                          </Badge>
+                        </Group>
+                      </Group>
+                    ))}
+                  </Stack>
+                )}
+              </div>
+            )}
           </Stack>
         )
       )}

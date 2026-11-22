@@ -3,7 +3,10 @@ use std::{
     future::{Future, Ready, ready},
     pin::Pin,
     rc::Rc,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -38,10 +41,13 @@ struct CacheEntry {
     expires_at: Instant,
 }
 
+const MAX_PERMISSION_CACHE_ENTRIES: usize = 10_000;
+
 #[derive(Clone)]
 pub struct PermissionCache {
     ttl: Duration,
     entries: Arc<RwLock<HashMap<ObjectId, CacheEntry>>>,
+    generation: Arc<AtomicU64>,
 }
 
 impl PermissionCache {
@@ -49,6 +55,7 @@ impl PermissionCache {
         Self {
             ttl: Duration::from_secs(ttl_seconds),
             entries: Arc::new(RwLock::new(HashMap::new())),
+            generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -59,6 +66,7 @@ impl PermissionCache {
         role_repo: &Arc<dyn RoleRepository>,
         permission_repo: &Arc<dyn PermissionRepository>,
     ) -> Result<ResolvedAccess, AppError> {
+        let start_generation = self.generation.load(Ordering::Acquire);
         if !self.ttl.is_zero() {
             let guard = self.entries.read().await;
             if let Some(entry) = guard.get(&user_id)
@@ -93,26 +101,43 @@ impl PermissionCache {
             is_super_admin,
         };
 
-        if !self.ttl.is_zero() {
+        // Only cache if no invalidation occurred while resolving from DB.
+        if !self.ttl.is_zero() && self.generation.load(Ordering::Acquire) == start_generation {
+            let now = Instant::now();
             let mut guard = self.entries.write().await;
-            guard.insert(
-                user_id,
-                CacheEntry {
-                    access: access.clone(),
-                    expires_at: Instant::now() + self.ttl,
-                },
-            );
+            if self.generation.load(Ordering::Acquire) == start_generation {
+                if guard.len() >= MAX_PERMISSION_CACHE_ENTRIES {
+                    guard.retain(|_, entry| entry.expires_at > now);
+                    if guard.len() >= MAX_PERMISSION_CACHE_ENTRIES
+                        && let Some(oldest_key) = guard
+                            .iter()
+                            .min_by_key(|(_, entry)| entry.expires_at)
+                            .map(|(k, _)| *k)
+                    {
+                        guard.remove(&oldest_key);
+                    }
+                }
+                guard.insert(
+                    user_id,
+                    CacheEntry {
+                        access: access.clone(),
+                        expires_at: now + self.ttl,
+                    },
+                );
+            }
         }
 
         Ok(access)
     }
 
     pub async fn invalidate_user(&self, user_id: ObjectId) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         let mut guard = self.entries.write().await;
         guard.remove(&user_id);
     }
 
     pub async fn invalidate_all(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         let mut guard = self.entries.write().await;
         guard.clear();
     }

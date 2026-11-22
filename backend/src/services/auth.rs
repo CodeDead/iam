@@ -3,6 +3,7 @@ use std::sync::Arc;
 use chrono::{Duration, Utc};
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
 use serde_json::json;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
@@ -11,11 +12,20 @@ use crate::{
         validation::{normalize_email, validate_dto},
     },
     config::Settings,
-    database::{mongodb::chrono_to_bson_dt, seed::ROLE_USER},
+    database::{
+        mongodb::{bson_dt_to_chrono, chrono_to_bson_dt},
+        seed::ROLE_USER,
+    },
     middleware::{AuthenticatedUser, PermissionCache},
     repository::{
         auth::{
             dao::refresh_token::RefreshToken, refresh_token_repository::RefreshTokenRepository,
+        },
+        organisation::{
+            dao::organisation::{
+                Organisation, OrganisationMember, OrganisationMemberRole, OrganisationMemberStatus,
+            },
+            organisation_repository::OrganisationRepository,
         },
         permission::permission_repository::PermissionRepository,
         role::role_repository::RoleRepository,
@@ -32,6 +42,7 @@ use crate::{
     services::audit::{AuditEvent, AuditService},
     web::dto::{
         auth::{AuthTokenResponse, LoginRequest, MeResponse, RegisterRequest},
+        organisations::UserOrganisationSummary,
         roles::RoleSummary,
         users::UserResponse,
     },
@@ -41,8 +52,8 @@ const MAX_REVOKED_TOKENS_PER_FAMILY: usize = 5;
 
 pub struct AuthSession {
     pub response: AuthTokenResponse,
-    pub raw_refresh_token: String,
-    pub csrf_token: String,
+    pub raw_refresh_token: Option<String>,
+    pub csrf_token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -53,6 +64,7 @@ pub struct AuthService {
     role_repo: Arc<dyn RoleRepository>,
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+    organisation_repo: Arc<dyn OrganisationRepository>,
     permission_cache: PermissionCache,
     audit_service: AuditService,
 }
@@ -66,6 +78,7 @@ impl AuthService {
         role_repo: Arc<dyn RoleRepository>,
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+        organisation_repo: Arc<dyn OrganisationRepository>,
         permission_cache: PermissionCache,
         audit_service: AuditService,
     ) -> Self {
@@ -76,6 +89,7 @@ impl AuthService {
             role_repo,
             permission_repo,
             refresh_token_repo,
+            organisation_repo,
             permission_cache,
             audit_service,
         }
@@ -95,6 +109,37 @@ impl AuthService {
                 "EMAIL_ALREADY_EXISTS",
                 "An account with this email address already exists",
             ));
+        }
+
+        let organisation_name = req
+            .organisation_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(ToString::to_string);
+
+        if let Some(ref org_name) = organisation_name {
+            let char_count = org_name.chars().count();
+            if !(2..=120).contains(&char_count) {
+                return Err(AppError::validation(
+                    "Organisation name must be 2 to 120 characters",
+                    std::collections::HashMap::from([(
+                        "organisation_name".to_string(),
+                        vec!["Organisation name must be 2 to 120 characters".to_string()],
+                    )]),
+                ));
+            }
+            if self
+                .organisation_repo
+                .find_by_name(org_name)
+                .await?
+                .is_some()
+            {
+                return Err(AppError::conflict(
+                    "ORGANISATION_ALREADY_EXISTS",
+                    "An organisation with this name already exists",
+                ));
+            }
         }
 
         let default_role = self
@@ -125,16 +170,95 @@ impl AuthService {
             profile: UserProfileInfo::default(),
             created_at: now,
             updated_at: now,
-            last_login_at: Some(now),
+            last_login_at: (status == AccountStatus::Active).then_some(now),
         };
 
         let created = self.user_repo.create(&user).await?;
-        let family_id = Uuid::new_v4().to_string();
         let created_id = created.id;
         let created_email = created.email.clone();
-        let session = self
-            .issue_session(created, family_id, user_agent.clone(), ip_address.clone())
-            .await?;
+
+        let created_org_summary = if let Some(org_name) = organisation_name {
+            let org = Organisation {
+                id: ObjectId::new(),
+                name: org_name,
+                members: vec![OrganisationMember {
+                    user_id: created_id,
+                    role: OrganisationMemberRole::Owner,
+                    status: OrganisationMemberStatus::Active,
+                    joined_at: now,
+                }],
+                version: 0,
+                created_at: now,
+                updated_at: now,
+            };
+            let created_org = match self.organisation_repo.create(&org).await {
+                Ok(created_org) => created_org,
+                Err(err) => {
+                    // Compensating rollback so failed org creation never leaves an orphaned user.
+                    let _ = self.user_repo.delete(created_id).await;
+                    return Err(err);
+                }
+            };
+            self.audit_service
+                .record(
+                    AuditEvent::system(
+                        "organisation.created",
+                        "organisation",
+                        format!(
+                            "Registered organisation '{}' by '{}'",
+                            created_org.name, created_email
+                        ),
+                    )
+                    .with_actor(Some(created_id), Some(created_email.clone()))
+                    .with_resource(created_org.id.to_hex(), created_org.name.clone())
+                    .with_details(json!({
+                        "name": created_org.name,
+                        "member_count": 1,
+                        "via": "registration",
+                    })),
+                )
+                .await;
+
+            Some(UserOrganisationSummary {
+                id: created_org.id.to_hex(),
+                name: created_org.name,
+                role: OrganisationMemberRole::Owner,
+                status: OrganisationMemberStatus::Active,
+                member_count: 1,
+                active_member_count: 1,
+                active_owner_count: 1,
+                joined_at: bson_dt_to_chrono(now),
+                created_at: bson_dt_to_chrono(created_org.created_at),
+            })
+        } else {
+            None
+        };
+
+        let mut session = if status == AccountStatus::Active {
+            let family_id = Uuid::new_v4().to_string();
+            self.issue_session(created, family_id, user_agent.clone(), ip_address.clone())
+                .await?
+        } else {
+            // Do not mint tokens, cookies, or refresh sessions for unverified accounts.
+            let (role_summaries, permissions) = self.load_roles_and_permissions(&created).await?;
+            let user_response =
+                UserResponse::from_user(created, role_summaries, Some(permissions.clone()));
+            AuthSession {
+                response: AuthTokenResponse {
+                    access_token: String::new(),
+                    token_type: "None".to_string(),
+                    expires_in: 0,
+                    expires_at: Utc::now(),
+                    csrf_token: String::new(),
+                    user: user_response,
+                    permissions,
+                    organisation: None,
+                },
+                raw_refresh_token: None,
+                csrf_token: None,
+            }
+        };
+        session.response.organisation = created_org_summary;
 
         self.audit_service
             .record(
@@ -164,7 +288,7 @@ impl AuthService {
         validate_dto(&req)?;
 
         let email = normalize_email(&req.email);
-        let Some(mut user) = self.user_repo.find_by_email(&email).await? else {
+        let Some(user) = self.user_repo.find_by_email(&email).await? else {
             // Equalize Argon2id latency for unknown emails to prevent timing-based user enumeration.
             verify_dummy_password(req.password).await;
             self.audit_service
@@ -216,10 +340,18 @@ impl AuthService {
 
         ensure_account_can_authenticate(&user)?;
 
+        // Atomic conditional $set prevents overwriting concurrent admin disables/demotions
+        // that occurred while Argon2id password verification was running.
         let now = BsonDateTime::now();
-        user.last_login_at = Some(now);
-        user.updated_at = now;
-        let updated = self.user_repo.update(&user).await?;
+        let Some(updated) = self.user_repo.record_login(user.id, now).await? else {
+            if let Some(latest) = self.user_repo.find_by_id(user.id).await? {
+                ensure_account_can_authenticate(&latest)?;
+            }
+            return Err(AppError::unauthorized(
+                "INVALID_CREDENTIALS",
+                "Invalid email or password",
+            ));
+        };
 
         let family_id = Uuid::new_v4().to_string();
         let user_id = updated.id;
@@ -377,9 +509,18 @@ impl AuthService {
         }
 
         // Bound per-session storage growth under rapid refreshes while preserving recent reuse detection.
-        self.refresh_token_repo
+        // Never fail an already-committed rotation if best-effort pruning encounters a transient error.
+        if let Err(err) = self
+            .refresh_token_repo
             .prune_revoked_in_family(&stored.family_id, MAX_REVOKED_TOKENS_PER_FAMILY)
-            .await?;
+            .await
+        {
+            warn!(
+                family_id = %stored.family_id,
+                error = %err,
+                "Best-effort revoked refresh token pruning failed after rotation"
+            );
+        }
 
         self.build_auth_session(user, new_raw_token).await
     }
@@ -485,12 +626,13 @@ impl AuthService {
             csrf_token: csrf_token.clone(),
             user: user_response,
             permissions,
+            organisation: None,
         };
 
         Ok(AuthSession {
             response,
-            raw_refresh_token,
-            csrf_token,
+            raw_refresh_token: Some(raw_refresh_token),
+            csrf_token: Some(csrf_token),
         })
     }
 

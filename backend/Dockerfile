@@ -27,14 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 10001 -s /usr/sbin/nologin appuser
+    && groupadd -g 10001 appuser \
+    && useradd -m -u 10001 -g 10001 -s /usr/sbin/nologin appuser
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/auth-backend /app/auth-backend
-COPY --from=builder /app/config /app/config
-
-RUN chown -R appuser:appuser /app
+COPY --from=builder --chown=root:root --chmod=0555 /app/target/release/auth-backend /app/auth-backend
+COPY --from=builder --chown=root:root /app/config /app/config
+RUN chmod -R a-w,a+rX /app/config
 
 USER appuser
 
@@ -45,6 +45,6 @@ ENV RUST_LOG=info
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+    CMD curl -fsS "http://127.0.0.1:${SERVER_PORT:-8080}/health/ready" || exit 1
 
 ENTRYPOINT ["/app/auth-backend"]

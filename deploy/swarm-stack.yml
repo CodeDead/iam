@@ -14,7 +14,6 @@ services:
     image: ${BACKEND_IMAGE}
     networks:
       - proxy
-      - internal
     secrets:
       - source: codedead_jwt_private_pem
         target: /run/secrets/jwt_private.pem
@@ -30,8 +29,12 @@ services:
       APP_ENV: production
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: "8080"
-      MONGODB_URI: ${MONGODB_URI}
+      # Optionally pass MONGODB_URI via a Swarm secret by setting MONGODB_URI_FILE=/run/secrets/mongodb_uri
+      MONGODB_URI: ${MONGODB_URI:-}
+      MONGODB_URI_FILE: ${MONGODB_URI_FILE:-}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-user_management}
+      MONGODB_MAX_POOL_SIZE: ${MONGODB_MAX_POOL_SIZE:-50}
+      MONGODB_MIN_POOL_SIZE: ${MONGODB_MIN_POOL_SIZE:-5}
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-900}
@@ -47,17 +50,22 @@ services:
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-20}
       RATE_LIMIT_API_PER_MINUTE: ${RATE_LIMIT_API_PER_MINUTE:-300}
-      # Trust CF-Connecting-IP / X-Forwarded-For headers from Cloudflare Tunnel + Traefik.
+      # Trust CF-Connecting-IP / X-Forwarded-For / X-Real-IP headers from Cloudflare Tunnel + Traefik.
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
       # OpenAPI / Swagger UI is disabled by default in production.
+      # If enabled, also add PathPrefix(`/swagger-ui`) to the Traefik router rule behind proxy auth.
       ENABLE_SWAGGER_UI: ${ENABLE_SWAGGER_UI:-false}
-      # Automatically expire audit_logs older than N days (0 disables TTL).
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      # Automatically expire audit_logs older than N days (0 drops/disables TTL index).
       AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS:-90}
       # Set to "0" if scaling backend replicas > 1 so permission revocations propagate immediately.
       PERMISSION_CACHE_TTL_SECONDS: ${PERMISSION_CACHE_TTL_SECONDS:-30}
       # Remove BOOTSTRAP_SUPER_ADMIN_PASSWORD after initial login and password rotation.
       BOOTSTRAP_SUPER_ADMIN_EMAIL: ${BOOTSTRAP_SUPER_ADMIN_EMAIL:-}
       BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${BOOTSTRAP_SUPER_ADMIN_PASSWORD:-}
+      BOOTSTRAP_SUPER_ADMIN_PASSWORD_FILE: ${BOOTSTRAP_SUPER_ADMIN_PASSWORD_FILE:-}
+      BOOTSTRAP_SUPER_ADMIN_FIRST_NAME: ${BOOTSTRAP_SUPER_ADMIN_FIRST_NAME:-System}
+      BOOTSTRAP_SUPER_ADMIN_LAST_NAME: ${BOOTSTRAP_SUPER_ADMIN_LAST_NAME:-Administrator}
       RUST_LOG: ${RUST_LOG:-info,auth_backend=info}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
@@ -82,12 +90,13 @@ services:
           cpus: "1.0"
           memory: 256M
       # Traefik v2/v3 Swarm routing labels (same-domain /api routing by default).
+      # /health and /health/ready remain internal to Swarm's container healthcheck and are not exposed publicly.
       # To host API on a separate subdomain instead, replace the rule with:
       #   Host(`${API_DOMAIN}`)
       labels:
         - traefik.enable=true
         - traefik.docker.network=${PROXY_NETWORK:-proxy}
-        - traefik.http.routers.codedead-api.rule=Host(`${APP_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/health`))
+        - traefik.http.routers.codedead-api.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api`)
         - traefik.http.routers.codedead-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
         - traefik.http.routers.codedead-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
         - traefik.http.routers.codedead-api.priority=100
@@ -137,5 +146,3 @@ networks:
   proxy:
     external: true
     name: ${PROXY_NETWORK:-proxy}
-  internal:
-    driver: overlay

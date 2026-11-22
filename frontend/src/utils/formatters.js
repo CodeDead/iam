@@ -41,3 +41,16 @@ export function capitalize(str) {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1).replace(/_/g, ' ');
 }
+
+export function getMemberStatusColor(status) {
+  switch (String(status || '').toLowerCase()) {
+    case 'active':
+      return 'green';
+    case 'invited':
+      return 'yellow';
+    case 'suspended':
+      return 'red';
+    default:
+      return 'gray';
+  }
+}

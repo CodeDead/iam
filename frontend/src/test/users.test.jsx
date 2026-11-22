@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UsersPage } from '../features/users/UsersPage';
 import { roleService } from '../services/roleService';
@@ -15,6 +16,7 @@ vi.mock('../services/userService', () => ({
     updateRoles: vi.fn(),
     getById: vi.fn(),
     getEffectivePermissions: vi.fn(),
+    getOrganisations: vi.fn(),
   },
 }));
 
@@ -96,5 +98,51 @@ describe('User Management Page', () => {
     expect(
       await screen.findByText(/unable to connect to the server\. please verify the api is running/i)
     ).toBeInTheDocument();
+  });
+
+  it('shows user organisation memberships in the detail drawer when organisations.read is granted', async () => {
+    const user = userEvent.setup();
+    userService.getById.mockResolvedValue({
+      id: 'u1',
+      first_name: 'Alice',
+      last_name: 'Smith',
+      email: 'alice@example.com',
+      status: 'active',
+      email_verified: true,
+      roles: [{ id: 'r1', name: 'Administrator' }],
+      created_at: '2026-11-20T10:00:00Z',
+      updated_at: '2026-11-20T10:00:00Z',
+      last_login_at: '2026-11-20T10:00:00Z',
+    });
+    userService.getEffectivePermissions.mockResolvedValue([
+      { id: 'p1', name: 'users.read' },
+      { id: 'p2', name: 'organisations.read' },
+    ]);
+    userService.getOrganisations.mockResolvedValue([
+      {
+        id: 'org1',
+        name: 'Acme Inc.',
+        role: 'owner',
+        status: 'active',
+        member_count: 3,
+        active_member_count: 2,
+        active_owner_count: 1,
+      },
+    ]);
+
+    const adminSession = {
+      user: { id: 'u1', email: 'alice@example.com', roles: [] },
+      permissions: ['users.read', 'organisations.read'],
+    };
+
+    renderWithProviders(<UsersPage />, { initialSession: adminSession });
+
+    expect(await screen.findByText('alice@example.com')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /view alice@example\.com/i }));
+
+    expect(await screen.findByText('Organisations (1)')).toBeInTheDocument();
+    const orgLink = screen.getByRole('link', { name: 'Acme Inc.' });
+    expect(orgLink).toHaveAttribute('href', '/organisations?search=Acme%20Inc.');
+    expect(userService.getOrganisations).toHaveBeenCalledWith('u1');
   });
 });

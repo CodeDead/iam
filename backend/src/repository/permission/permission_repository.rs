@@ -173,7 +173,7 @@ const MAX_SEARCH_CHARS: usize = 200;
 
 pub fn regex_escape(input: &str) -> String {
     let mut out = String::with_capacity(input.len().min(MAX_SEARCH_CHARS) + 8);
-    for ch in input.chars().take(MAX_SEARCH_CHARS) {
+    for ch in input.chars().filter(|&c| c != '\0').take(MAX_SEARCH_CHARS) {
         if matches!(
             ch,
             '\\' | '.' | '+' | '*' | '?' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|'

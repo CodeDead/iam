@@ -10,18 +10,27 @@ use crate::{
     repository::{
         audit::audit_log_repository::{AuditLogFilter, AuditLogRepository},
         auth::refresh_token_repository::RefreshTokenRepository,
+        organisation::{
+            dao::organisation::OrganisationMemberStatus,
+            organisation_repository::OrganisationRepository,
+        },
         permission::permission_repository::PermissionRepository,
         role::role_repository::{RoleFilter, RoleRepository},
         user::{dao::user::AccountStatus, user_repository::UserRepository},
     },
-    web::dto::dashboard::{
-        AuditStats, DailyActivityPoint, DashboardStatsResponse, PermissionStats, RecentAuditEvent,
-        ResourceCountItem, RoleDistributionItem, RoleStats, UserStats,
+    web::dto::{
+        dashboard::{
+            AuditStats, DailyActivityPoint, DashboardStatsResponse, OrganisationSizeItem,
+            OrganisationStats, PermissionStats, RecentAuditEvent, ResourceCountItem,
+            RoleDistributionItem, RoleStats, UserStats,
+        },
+        organisations::UserOrganisationSummary,
     },
 };
 
 const ACTIVITY_WINDOW_DAYS: i64 = 7;
 const MAX_DASHBOARD_ROLES: u64 = 20;
+const MAX_DASHBOARD_ORGANISATIONS: u64 = 8;
 const MAX_RECENT_AUDIT_EVENTS: u64 = 6;
 
 #[derive(Clone)]
@@ -30,6 +39,7 @@ pub struct DashboardService {
     role_repo: Arc<dyn RoleRepository>,
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+    organisation_repo: Arc<dyn OrganisationRepository>,
     audit_repo: Arc<dyn AuditLogRepository>,
 }
 
@@ -39,6 +49,7 @@ impl DashboardService {
         role_repo: Arc<dyn RoleRepository>,
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+        organisation_repo: Arc<dyn OrganisationRepository>,
         audit_repo: Arc<dyn AuditLogRepository>,
     ) -> Self {
         Self {
@@ -46,6 +57,7 @@ impl DashboardService {
             role_repo,
             permission_repo,
             refresh_token_repo,
+            organisation_repo,
             audit_repo,
         }
     }
@@ -63,12 +75,29 @@ impl DashboardService {
         let can_read_users = actor.has_permission("users.read");
         let can_read_roles = actor.has_permission("roles.read");
         let can_read_permissions = actor.has_permission("permissions.read");
+        let can_read_organisations = actor.has_permission("organisations.read");
         let can_read_audit = actor.has_permission("audit_logs.read");
 
         let my_active_sessions = self
             .refresh_token_repo
             .count_active_for_user(actor.user_id)
             .await?;
+
+        let my_org_docs = self
+            .organisation_repo
+            .find_by_member_user_id(actor.user_id)
+            .await?;
+        let my_organisations: Vec<UserOrganisationSummary> = my_org_docs
+            .into_iter()
+            .filter_map(|org| {
+                let membership = org.members.iter().find(|m| m.user_id == actor.user_id)?;
+                Some(
+                    crate::services::organisations::build_user_organisation_summary(
+                        &org, membership,
+                    ),
+                )
+            })
+            .collect();
 
         let users = if can_read_users {
             let total = self.user_repo.count_all().await?;
@@ -112,27 +141,33 @@ impl DashboardService {
                 .find_all(&RoleFilter {
                     search: None,
                     skip: 0,
-                    limit: MAX_DASHBOARD_ROLES,
+                    limit: 200,
                     sort_by: "name".to_string(),
                     sort_order: Some(SortOrder::Asc),
                 })
                 .await?;
 
-            let mut distribution = Vec::with_capacity(role_docs.len());
-            for role in role_docs {
-                let user_count = if can_read_users {
-                    Some(self.user_repo.count_by_role_id(role.id).await?)
-                } else {
-                    None
-                };
-                distribution.push(RoleDistributionItem {
-                    id: role.id.to_hex(),
-                    name: role.name,
-                    is_system: role.is_system,
-                    permission_count: role.permissions.len() as u64,
-                    user_count,
-                });
-            }
+            let role_user_counts = if can_read_users {
+                Some(self.user_repo.count_by_roles().await?)
+            } else {
+                None
+            };
+
+            let mut distribution: Vec<RoleDistributionItem> = role_docs
+                .into_iter()
+                .map(|role| {
+                    let user_count = role_user_counts
+                        .as_ref()
+                        .map(|counts| counts.get(&role.id).copied().unwrap_or(0));
+                    RoleDistributionItem {
+                        id: role.id.to_hex(),
+                        name: role.name,
+                        is_system: role.is_system,
+                        permission_count: role.permissions.len() as u64,
+                        user_count,
+                    }
+                })
+                .collect();
 
             distribution.sort_by(|a, b| {
                 b.user_count
@@ -141,6 +176,7 @@ impl DashboardService {
                     .then_with(|| b.permission_count.cmp(&a.permission_count))
                     .then_with(|| a.name.cmp(&b.name))
             });
+            distribution.truncate(MAX_DASHBOARD_ROLES as usize);
 
             (
                 Some(total),
@@ -178,6 +214,45 @@ impl DashboardService {
             )
         } else {
             (None, None)
+        };
+
+        let organisations = if can_read_organisations {
+            let total = self.organisation_repo.count_all().await?;
+            let new_last_7_days = self.organisation_repo.count_created_since(since_7d).await?;
+            let membership_counts = self.organisation_repo.membership_counts().await?;
+            let largest_docs = self
+                .organisation_repo
+                .find_largest(MAX_DASHBOARD_ORGANISATIONS)
+                .await?;
+            let largest_organisations = largest_docs
+                .into_iter()
+                .map(|org| {
+                    let member_count = org.members.len() as u64;
+                    let active_member_count = org
+                        .members
+                        .iter()
+                        .filter(|m| m.status == OrganisationMemberStatus::Active)
+                        .count() as u64;
+                    OrganisationSizeItem {
+                        id: org.id.to_hex(),
+                        name: org.name,
+                        member_count,
+                        active_member_count,
+                    }
+                })
+                .collect();
+
+            Some(OrganisationStats {
+                total,
+                new_last_7_days,
+                total_memberships: membership_counts.total,
+                active_memberships: membership_counts.active,
+                invited_memberships: membership_counts.invited,
+                suspended_memberships: membership_counts.suspended,
+                largest_organisations,
+            })
+        } else {
+            None
         };
 
         let audit = if can_read_audit {
@@ -303,11 +378,13 @@ impl DashboardService {
 
         Ok(DashboardStatsResponse {
             my_active_sessions,
+            my_organisations,
             users,
             total_roles,
             roles,
             total_permissions,
             permissions,
+            organisations,
             audit,
         })
     }
