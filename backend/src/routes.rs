@@ -9,8 +9,8 @@ use crate::{
     },
     openapi::ApiDoc,
     web::controller::{
-        auth as auth_ctrl, dashboard as dashboard_ctrl, health, permissions as perm_ctrl,
-        profile as profile_ctrl, roles as role_ctrl, users as user_ctrl,
+        audit as audit_ctrl, auth as auth_ctrl, dashboard as dashboard_ctrl, health,
+        permissions as perm_ctrl, profile as profile_ctrl, roles as role_ctrl, users as user_ctrl,
     },
 };
 
@@ -227,6 +227,23 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, rate_limit: &RateLimitSett
                                 .guard(guard::Get())
                                 .wrap(require_all_permissions(&["permissions.read", "roles.read"]))
                                 .to(perm_ctrl::get_permission_roles),
+                        ),
+                )
+                // Protected audit log endpoints
+                .service(
+                    web::scope("/audit-logs")
+                        .wrap(JwtAuthMiddleware)
+                        .service(
+                            web::resource("")
+                                .guard(guard::Get())
+                                .wrap(require_permission("audit_logs.read"))
+                                .to(audit_ctrl::list_audit_logs),
+                        )
+                        .service(
+                            web::resource("/{id}")
+                                .guard(guard::Get())
+                                .wrap(require_permission("audit_logs.read"))
+                                .to(audit_ctrl::get_audit_log),
                         ),
                 ),
         );

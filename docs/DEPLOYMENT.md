@@ -59,7 +59,7 @@ MONGODB_DATABASE=codedead_iam
 `backend/Cargo.toml` configures `[profile.release]` for maximum runtime performance and minimal binary footprint (`opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`, `incremental = false`).
 
 - `backend/Dockerfile` compiles with `cargo build --release --locked` using Rust `1.100.0` and copies the stripped binary into a non-root `debian:bookworm-slim` runtime image (`appuser`).
-- `frontend/Dockerfile` compiles the Vite 8 production bundle with `npm ci && npm run build` and serves static assets via `nginx:stable-alpine` with `frontend/nginx.conf` security headers and SPA history fallback.
+- `frontend/Dockerfile` compiles the Vite 8 production bundle with `node:26-alpine` (`npm ci && npm run build`, including `public/robots.txt`) and serves static assets via `nginx:stable-alpine` with `frontend/nginx.conf` security headers, `/api/` `503` JSON fallback when the backend is offline, and SPA history fallback.
 
 ---
 
@@ -100,7 +100,7 @@ For horizontally scaled multi-replica backend deployments, place an edge/gateway
 
 - **Liveness probe:** `GET /health` (returns HTTP 200 when the HTTP worker loop is responsive).
 - **Readiness probe:** `GET /health/ready` (pings MongoDB before returning HTTP 200).
-- **Structured logging:** Control verbosity via `RUST_LOG=info,auth_backend=info`. Every response emits an `X-Request-Id` header for end-to-end log correlation.
+- **Structured & audit logging:** Control verbosity via `RUST_LOG=info,auth_backend=info`. Every response emits an `X-Request-Id` header for end-to-end log correlation. User, role, permission, profile, and authentication events emit structured `auth_backend::audit` logs to stdout and are persisted in the MongoDB `audit_logs` collection (viewable via `GET /api/v1/audit-logs` and the `/audit-logs` UI with `audit_logs.read`).
 - **OpenAPI / Swagger UI:** Disable or restrict `/swagger-ui/` and `/api/v1/openapi.json` at the reverse proxy in locked-down environments if API schema discovery should be internal-only.
 
 ---

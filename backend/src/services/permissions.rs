@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
+use serde_json::json;
 
 use crate::{
     common::{
@@ -16,6 +17,7 @@ use crate::{
         },
         role::role_repository::RoleRepository,
     },
+    services::audit::{AuditEvent, AuditService},
     web::dto::{
         permissions::{
             CreatePermissionRequest, ListPermissionsQuery, PermissionResponse,
@@ -30,6 +32,7 @@ pub struct PermissionService {
     permission_repo: Arc<dyn PermissionRepository>,
     role_repo: Arc<dyn RoleRepository>,
     permission_cache: PermissionCache,
+    audit_service: AuditService,
 }
 
 impl PermissionService {
@@ -37,11 +40,13 @@ impl PermissionService {
         permission_repo: Arc<dyn PermissionRepository>,
         role_repo: Arc<dyn RoleRepository>,
         permission_cache: PermissionCache,
+        audit_service: AuditService,
     ) -> Self {
         Self {
             permission_repo,
             role_repo,
             permission_cache,
+            audit_service,
         }
     }
 
@@ -126,6 +131,22 @@ impl PermissionService {
         };
 
         let created = self.permission_repo.create(&permission).await?;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "permission.created",
+                    "permission",
+                    format!("Created permission '{}'", created.name),
+                )
+                .with_resource(created.id.to_hex(), created.name.clone())
+                .with_details(json!({
+                    "resource": created.resource,
+                    "action": created.action,
+                    "description": created.description,
+                })),
+            )
+            .await;
         Ok(PermissionResponse::from(created))
     }
 
@@ -148,6 +169,7 @@ impl PermissionService {
             ));
         }
 
+        let previous_name = perm.name.clone();
         let new_resource = req
             .resource
             .map(|r| r.trim().to_lowercase())
@@ -182,6 +204,24 @@ impl PermissionService {
         perm.updated_at = BsonDateTime::now();
         let updated = self.permission_repo.update(&perm).await?;
         self.permission_cache.invalidate_all().await;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "permission.updated",
+                    "permission",
+                    format!("Updated permission '{}'", updated.name),
+                )
+                .with_resource(updated.id.to_hex(), updated.name.clone())
+                .with_details(json!({
+                    "previous_name": previous_name,
+                    "name": updated.name,
+                    "resource": updated.resource,
+                    "action": updated.action,
+                    "description": updated.description,
+                })),
+            )
+            .await;
         Ok(PermissionResponse::from(updated))
     }
 
@@ -202,6 +242,21 @@ impl PermissionService {
             .await?;
         self.permission_repo.delete(perm_id).await?;
         self.permission_cache.invalidate_all().await;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "permission.deleted",
+                    "permission",
+                    format!("Deleted permission '{}'", perm.name),
+                )
+                .with_resource(perm.id.to_hex(), perm.name.clone())
+                .with_details(json!({
+                    "resource": perm.resource,
+                    "action": perm.action,
+                })),
+            )
+            .await;
         Ok(())
     }
 

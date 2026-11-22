@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
-use tracing::warn;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -29,6 +29,7 @@ use crate::{
         jwt::JwtService,
         password::{hash_password, verify_password},
     },
+    services::audit::{AuditEvent, AuditService},
     web::dto::{
         auth::{AuthTokenResponse, LoginRequest, MeResponse, RegisterRequest},
         roles::RoleSummary,
@@ -51,9 +52,11 @@ pub struct AuthService {
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
     permission_cache: PermissionCache,
+    audit_service: AuditService,
 }
 
 impl AuthService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         settings: Arc<Settings>,
         jwt_service: Arc<JwtService>,
@@ -62,6 +65,7 @@ impl AuthService {
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
         permission_cache: PermissionCache,
+        audit_service: AuditService,
     ) -> Self {
         Self {
             settings,
@@ -71,6 +75,7 @@ impl AuthService {
             permission_repo,
             refresh_token_repo,
             permission_cache,
+            audit_service,
         }
     }
 
@@ -123,8 +128,29 @@ impl AuthService {
 
         let created = self.user_repo.create(&user).await?;
         let family_id = Uuid::new_v4().to_string();
-        self.issue_session(created, family_id, user_agent, ip_address)
-            .await
+        let created_id = created.id;
+        let created_email = created.email.clone();
+        let session = self
+            .issue_session(created, family_id, user_agent.clone(), ip_address.clone())
+            .await?;
+
+        self.audit_service
+            .record(
+                AuditEvent::system(
+                    "auth.registered",
+                    "auth",
+                    format!("Registered new account '{created_email}'"),
+                )
+                .with_actor(Some(created_id), Some(created_email.clone()))
+                .with_resource(created_id.to_hex(), created_email)
+                .with_details(json!({
+                    "ip_address": ip_address,
+                    "user_agent": user_agent,
+                })),
+            )
+            .await;
+
+        Ok(session)
     }
 
     pub async fn login(
@@ -156,8 +182,29 @@ impl AuthService {
         let updated = self.user_repo.update(&user).await?;
 
         let family_id = Uuid::new_v4().to_string();
-        self.issue_session(updated, family_id, user_agent, ip_address)
-            .await
+        let user_id = updated.id;
+        let user_email = updated.email.clone();
+        let session = self
+            .issue_session(updated, family_id, user_agent.clone(), ip_address.clone())
+            .await?;
+
+        self.audit_service
+            .record(
+                AuditEvent::system(
+                    "auth.login",
+                    "auth",
+                    format!("User '{user_email}' signed in"),
+                )
+                .with_actor(Some(user_id), Some(user_email.clone()))
+                .with_resource(user_id.to_hex(), user_email)
+                .with_details(json!({
+                    "ip_address": ip_address,
+                    "user_agent": user_agent,
+                })),
+            )
+            .await;
+
+        Ok(session)
     }
 
     pub async fn refresh(
@@ -184,14 +231,35 @@ impl AuthService {
 
         // Reuse detection: a revoked refresh token presented again indicates theft/replay.
         if stored.is_revoked() {
-            warn!(
-                user_id = %stored.user_id,
-                family_id = %stored.family_id,
-                "Revoked refresh token reuse detected; revoking entire token family"
-            );
             self.refresh_token_repo
                 .revoke_family(&stored.family_id)
                 .await?;
+            let user_email = self
+                .user_repo
+                .find_by_id(stored.user_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.email);
+            self.audit_service
+                .record(
+                    AuditEvent::system(
+                        "auth.refresh_token_reused",
+                        "auth",
+                        "Revoked refresh token reuse detected; token family revoked",
+                    )
+                    .with_actor(Some(stored.user_id), user_email.clone())
+                    .with_resource(
+                        stored.user_id.to_hex(),
+                        user_email.unwrap_or_else(|| stored.user_id.to_hex()),
+                    )
+                    .with_details(json!({
+                        "family_id": stored.family_id,
+                        "ip_address": ip_address,
+                    }))
+                    .as_warning(),
+                )
+                .await;
             return Err(AppError::unauthorized(
                 "REFRESH_TOKEN_REUSED",
                 "Refresh token has already been used or revoked; session terminated",
@@ -233,7 +301,7 @@ impl AuthService {
             revoked_at: None,
             replaced_by_hash: None,
             user_agent,
-            ip_address,
+            ip_address: ip_address.clone(),
             created_at: now,
         };
 
@@ -246,6 +314,22 @@ impl AuthService {
             self.refresh_token_repo
                 .revoke_family(&stored.family_id)
                 .await?;
+            self.audit_service
+                .record(
+                    AuditEvent::system(
+                        "auth.refresh_token_reused",
+                        "auth",
+                        "Concurrent refresh token reuse detected; token family revoked",
+                    )
+                    .with_actor(Some(user.id), Some(user.email.clone()))
+                    .with_resource(user.id.to_hex(), user.email)
+                    .with_details(json!({
+                        "family_id": stored.family_id,
+                        "ip_address": ip_address,
+                    }))
+                    .as_warning(),
+                )
+                .await;
             return Err(AppError::unauthorized(
                 "REFRESH_TOKEN_REUSED",
                 "Concurrent refresh token reuse detected; session terminated",
@@ -264,6 +348,27 @@ impl AuthService {
                 self.refresh_token_repo
                     .revoke_family(&stored.family_id)
                     .await?;
+                let user_email = self
+                    .user_repo
+                    .find_by_id(stored.user_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|u| u.email);
+                let label = user_email
+                    .clone()
+                    .unwrap_or_else(|| stored.user_id.to_hex());
+                self.audit_service
+                    .record(
+                        AuditEvent::system(
+                            "auth.logout",
+                            "auth",
+                            format!("User '{label}' signed out"),
+                        )
+                        .with_actor(Some(stored.user_id), user_email)
+                        .with_resource(stored.user_id.to_hex(), label),
+                    )
+                    .await;
             }
         }
         Ok(())

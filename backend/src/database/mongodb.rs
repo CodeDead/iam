@@ -12,6 +12,7 @@ use crate::{
     common::errors::AppError,
     config::settings::MongoDbSettings,
     repository::{
+        audit::audit_log_repository::AUDIT_LOGS_COLLECTION,
         auth::refresh_token_repository::REFRESH_TOKENS_COLLECTION,
         permission::permission_repository::PERMISSIONS_COLLECTION,
         role::role_repository::ROLES_COLLECTION, user::user_repository::USERS_COLLECTION,
@@ -206,6 +207,45 @@ impl MongoDb {
                         IndexOptions::builder()
                             .expire_after(Duration::from_secs(0))
                             .name("expires_at_ttl".to_string())
+                            .build(),
+                    )
+                    .build(),
+            ])
+            .await?;
+
+        // Audit logs collection indexes
+        let audit_logs = self.database.collection::<Document>(AUDIT_LOGS_COLLECTION);
+        audit_logs
+            .create_indexes(vec![
+                IndexModel::builder()
+                    .keys(doc! { "created_at": -1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("audit_created_at_desc".to_string())
+                            .build(),
+                    )
+                    .build(),
+                IndexModel::builder()
+                    .keys(doc! { "action": 1, "created_at": -1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("audit_action_created_at".to_string())
+                            .build(),
+                    )
+                    .build(),
+                IndexModel::builder()
+                    .keys(doc! { "resource_type": 1, "created_at": -1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("audit_resource_type_created_at".to_string())
+                            .build(),
+                    )
+                    .build(),
+                IndexModel::builder()
+                    .keys(doc! { "actor_id": 1, "created_at": -1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("audit_actor_id_created_at".to_string())
                             .build(),
                     )
                     .build(),

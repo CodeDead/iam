@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
+use serde_json::json;
 
 use crate::{
     common::{
@@ -20,6 +21,7 @@ use crate::{
         },
     },
     security::password::hash_password,
+    services::audit::{AuditEvent, AuditService},
     web::dto::{
         permissions::PermissionResponse,
         roles::RoleSummary,
@@ -37,6 +39,7 @@ pub struct UserService {
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
     permission_cache: PermissionCache,
+    audit_service: AuditService,
 }
 
 impl UserService {
@@ -46,6 +49,7 @@ impl UserService {
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
         permission_cache: PermissionCache,
+        audit_service: AuditService,
     ) -> Self {
         Self {
             user_repo,
@@ -53,6 +57,7 @@ impl UserService {
             permission_repo,
             refresh_token_repo,
             permission_cache,
+            audit_service,
         }
     }
 
@@ -170,6 +175,22 @@ impl UserService {
         };
 
         let created = self.user_repo.create(&user).await?;
+        let role_names: Vec<String> = assigned_roles.iter().map(|r| r.name.clone()).collect();
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "user.created",
+                    "user",
+                    format!("Created user '{}'", created.email),
+                )
+                .with_resource(created.id.to_hex(), created.email.clone())
+                .with_details(json!({
+                    "status": created.status.as_str(),
+                    "roles": role_names,
+                })),
+            )
+            .await;
         self.build_user_response_with_permissions(created).await
     }
 
@@ -195,6 +216,7 @@ impl UserService {
             ));
         }
 
+        let previous_email = user.email.clone();
         if let Some(first_name) = req.first_name {
             user.first_name = first_name.trim().to_string();
         }
@@ -222,6 +244,24 @@ impl UserService {
 
         user.updated_at = BsonDateTime::now();
         let updated = self.user_repo.update(&user).await?;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "user.updated",
+                    "user",
+                    format!("Updated user '{}'", updated.email),
+                )
+                .with_resource(updated.id.to_hex(), updated.email.clone())
+                .with_details(json!({
+                    "previous_email": previous_email,
+                    "email": updated.email,
+                    "first_name": updated.first_name,
+                    "last_name": updated.last_name,
+                    "email_verified": updated.email_verified,
+                })),
+            )
+            .await;
         self.build_user_response_with_permissions(updated).await
     }
 
@@ -259,6 +299,7 @@ impl UserService {
             self.ensure_not_last_active_super_admin().await?;
         }
 
+        let previous_status = user.status;
         user.status = req.status;
         user.updated_at = BsonDateTime::now();
         if req.status != AccountStatus::Active {
@@ -272,6 +313,27 @@ impl UserService {
                 .await?;
             self.permission_cache.invalidate_user(updated.id).await;
         }
+
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "user.status_updated",
+                    "user",
+                    format!(
+                        "Changed status for user '{}' from {} to {}",
+                        updated.email,
+                        previous_status.as_str(),
+                        updated.status.as_str()
+                    ),
+                )
+                .with_resource(updated.id.to_hex(), updated.email.clone())
+                .with_details(json!({
+                    "previous_status": previous_status.as_str(),
+                    "status": updated.status.as_str(),
+                })),
+            )
+            .await;
 
         self.build_user_response_with_permissions(updated).await
     }
@@ -306,6 +368,17 @@ impl UserService {
             .await?;
         self.permission_cache.invalidate_user(target_id).await;
         self.user_repo.delete(target_id).await?;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "user.deleted",
+                    "user",
+                    format!("Deleted user '{}'", user.email),
+                )
+                .with_resource(user.id.to_hex(), user.email.clone()),
+            )
+            .await;
         Ok(())
     }
 
@@ -366,6 +439,23 @@ impl UserService {
         self.refresh_token_repo
             .revoke_all_for_user(updated.id)
             .await?;
+
+        let mut role_names: Vec<String> = new_roles.iter().map(|r| r.name.clone()).collect();
+        role_names.sort();
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "user.roles_updated",
+                    "user",
+                    format!("Updated roles for user '{}'", updated.email),
+                )
+                .with_resource(updated.id.to_hex(), updated.email.clone())
+                .with_details(json!({
+                    "roles": role_names,
+                })),
+            )
+            .await;
 
         self.build_user_response_with_permissions(updated).await
     }

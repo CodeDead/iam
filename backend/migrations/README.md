@@ -1,12 +1,13 @@
 # MongoDB Schema, Indexes & Migrations
 
-This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)) inside the database configured via `MONGODB_DATABASE` (defaults to `user_management`).
+This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)) inside the database configured via `MONGODB_DATABASE` (defaults to `user_management`). When new system permissions (such as `audit_logs.read`) are introduced on upgrade, startup seeding automatically creates them and backfills them onto existing default system roles without overwriting custom role edits.
 
 BSON Data Access Objects (DAOs) and repository implementations live under [`src/repository/`](../src/repository/):
 - `src/repository/user/{user_repository.rs, dao/user.rs}`
 - `src/repository/role/{role_repository.rs, dao/role.rs}`
 - `src/repository/permission/{permission_repository.rs, dao/permission.rs}`
 - `src/repository/auth/{refresh_token_repository.rs, dao/refresh_token.rs}`
+- `src/repository/audit/{audit_log_repository.rs, dao/audit_log.rs}`
 
 ## Collections & Indexes
 
@@ -31,6 +32,12 @@ BSON Data Access Objects (DAOs) and repository implementations live under [`src/
 - `user_id`: Ascending index (`user_id_idx`)
 - `family_id`: Ascending index (`family_id_idx`)
 - `expires_at`: TTL index (`expires_at_ttl`, `expireAfterSeconds: 0`) for automatic MongoDB cleanup of expired tokens
+
+### 5. `audit_logs`
+- `created_at`: Descending index (`audit_created_at_desc`)
+- `action`, `created_at`: Compound index (`audit_action_created_at`)
+- `resource_type`, `created_at`: Compound index (`audit_resource_type_created_at`)
+- `actor_id`, `created_at`: Compound index (`audit_actor_id_created_at`)
 
 ## MongoDB Replica Set Requirement for Transactions
 

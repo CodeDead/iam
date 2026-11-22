@@ -4,10 +4,10 @@ REST API backend for **CodeDead IAM**, targeting **Rust Edition 2024 (`rustc 1.1
 
 ## Module Architecture (Zero `mod.rs`)
 
-- `src/web/controller/` — Thin HTTP controllers (`auth`, `users`, `roles`, `permissions`, `profile`, `dashboard`, `health`).
+- `src/web/controller/` — Thin HTTP controllers (`audit`, `auth`, `users`, `roles`, `permissions`, `profile`, `dashboard`, `health`).
 - `src/web/dto/` — Validated API request/response DTOs (`#[serde(deny_unknown_fields)]`).
-- `src/services/` — Business rules, privilege-escalation protection, cache invalidation, and session revocation.
-- `src/repository/` — Domain-grouped repositories (`*_repository.rs`) and BSON DAOs (`dao/*.rs`) for `user`, `role`, `permission`, and `auth`.
+- `src/services/` — Business rules, privilege-escalation protection, structured + persisted audit logging, cache invalidation, and session revocation.
+- `src/repository/` — Domain-grouped repositories (`*_repository.rs`) and BSON DAOs (`dao/*.rs`) for `user`, `role`, `permission`, `auth`, and `audit`.
 - `src/middleware/` — JWT authentication, `require_permission` RBAC guards, double-submit CSRF validation, rate limiting, and request ID / security headers.
 - `src/security/` — Argon2id password hashing, EdDSA (Ed25519) JWT signing/verification, key loading, and opaque token / SHA-256 helpers.
 - `src/database/` — MongoDB connection, index initialization, replica-set transaction detection, and system RBAC seeding.

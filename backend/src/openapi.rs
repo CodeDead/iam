@@ -11,10 +11,12 @@ use crate::{
     repository::user::dao::user::{AccountStatus, UserProfileInfo},
     web::{
         controller::{
-            auth as auth_ctrl, dashboard as dashboard_ctrl, health, permissions as perm_ctrl,
-            profile as profile_ctrl, roles as role_ctrl, users as user_ctrl,
+            audit as audit_ctrl, auth as auth_ctrl, dashboard as dashboard_ctrl, health,
+            permissions as perm_ctrl, profile as profile_ctrl, roles as role_ctrl,
+            users as user_ctrl,
         },
         dto::{
+            audit::AuditLogResponse,
             auth::{AuthTokenResponse, LoginRequest, MeResponse, RegisterRequest},
             dashboard::{DashboardStatsResponse, UserStats},
             health::HealthStatus,
@@ -94,6 +96,8 @@ impl Modify for BearerSecurityAddon {
         profile_ctrl::get_profile,
         profile_ctrl::update_profile,
         profile_ctrl::change_password,
+        audit_ctrl::list_audit_logs,
+        audit_ctrl::get_audit_log,
     ),
     components(
         schemas(
@@ -126,6 +130,7 @@ impl Modify for BearerSecurityAddon {
             UpdatePermissionRequest,
             UpdateProfileRequest,
             ChangePasswordRequest,
+            AuditLogResponse,
             ApiResponse<HealthStatus>,
             ApiResponse<EmptyData>,
             ApiResponse<AuthTokenResponse>,
@@ -140,6 +145,8 @@ impl Modify for BearerSecurityAddon {
             ApiResponse<PaginatedResponse<PermissionResponse>>,
             ApiResponse<Vec<PermissionResponse>>,
             ApiResponse<Vec<UserResponse>>,
+            ApiResponse<AuditLogResponse>,
+            ApiResponse<PaginatedResponse<AuditLogResponse>>,
         )
     ),
     tags(
@@ -149,7 +156,8 @@ impl Modify for BearerSecurityAddon {
         (name = "Users", description = "User lifecycle, status, role assignment, and effective permissions"),
         (name = "Roles", description = "RBAC role lifecycle and permission assignment"),
         (name = "Permissions", description = "Granular resource.action permission management"),
-        (name = "Profile", description = "Authenticated user self-service profile and password management")
+        (name = "Profile", description = "Authenticated user self-service profile and password management"),
+        (name = "Audit Logs", description = "Immutable security and administration activity logs")
     )
 )]
 pub struct ApiDoc;

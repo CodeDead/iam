@@ -12,6 +12,10 @@ use crate::{
     config::Settings,
     database::seed::seed_system_rbac,
     repository::{
+        audit::{
+            audit_log_repository::{AuditLogFilter, AuditLogRepository},
+            dao::audit_log::AuditLog,
+        },
         auth::{
             dao::refresh_token::RefreshToken, refresh_token_repository::RefreshTokenRepository,
         },
@@ -441,6 +445,101 @@ impl RefreshTokenRepository for InMemoryRefreshTokenRepository {
     }
 }
 
+#[derive(Default)]
+pub struct InMemoryAuditLogRepository {
+    entries: RwLock<Vec<AuditLog>>,
+}
+
+#[async_trait]
+impl AuditLogRepository for InMemoryAuditLogRepository {
+    async fn create(&self, entry: &AuditLog) -> Result<AuditLog, AppError> {
+        self.entries.write().await.push(entry.clone());
+        Ok(entry.clone())
+    }
+
+    async fn find_by_id(&self, id: ObjectId) -> Result<Option<AuditLog>, AppError> {
+        Ok(self
+            .entries
+            .read()
+            .await
+            .iter()
+            .find(|e| e.id == id)
+            .cloned())
+    }
+
+    async fn find_all(&self, filter: &AuditLogFilter) -> Result<(Vec<AuditLog>, u64), AppError> {
+        let guard = self.entries.read().await;
+        let mut items: Vec<AuditLog> = guard
+            .iter()
+            .filter(|e| {
+                if let Some(ref rt) = filter.resource_type
+                    && !rt.trim().is_empty()
+                    && e.resource_type != rt.trim()
+                {
+                    return false;
+                }
+                if let Some(ref action) = filter.action
+                    && !action.trim().is_empty()
+                    && e.action != action.trim()
+                {
+                    return false;
+                }
+                if let Some(ref actor_email) = filter.actor_email {
+                    let needle = actor_email.trim().to_lowercase();
+                    if !needle.is_empty()
+                        && !e
+                            .actor_email
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_lowercase()
+                            .contains(&needle)
+                    {
+                        return false;
+                    }
+                }
+                if let Some(ref search) = filter.search {
+                    let s = search.trim().to_lowercase();
+                    if !s.is_empty()
+                        && !e.action.to_lowercase().contains(&s)
+                        && !e.resource_type.to_lowercase().contains(&s)
+                        && !e
+                            .resource_name
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_lowercase()
+                            .contains(&s)
+                        && !e
+                            .actor_email
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_lowercase()
+                            .contains(&s)
+                        && !e.summary.to_lowercase().contains(&s)
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
+
+        if matches!(filter.sort_order, Some(SortOrder::Desc) | None) {
+            items.reverse();
+        }
+
+        let total = items.len() as u64;
+        let start = usize::try_from(filter.skip).unwrap_or(0);
+        let limit = usize::try_from(filter.limit).unwrap_or(100);
+        let page = items.into_iter().skip(start).take(limit).collect();
+        Ok((page, total))
+    }
+
+    async fn count_all(&self) -> Result<u64, AppError> {
+        Ok(self.entries.read().await.len() as u64)
+    }
+}
+
 pub async fn create_test_app_state() -> Result<AppState, AppError> {
     let mut settings = Settings::default();
     settings.rate_limit.enabled = false;
@@ -457,6 +556,7 @@ pub async fn create_test_app_state() -> Result<AppState, AppError> {
         Arc::new(InMemoryPermissionRepository::default());
     let refresh_token_repo: Arc<dyn RefreshTokenRepository> =
         Arc::new(InMemoryRefreshTokenRepository::default());
+    let audit_repo: Arc<dyn AuditLogRepository> = Arc::new(InMemoryAuditLogRepository::default());
 
     seed_system_rbac(
         &permission_repo,
@@ -474,5 +574,6 @@ pub async fn create_test_app_state() -> Result<AppState, AppError> {
         role_repo,
         permission_repo,
         refresh_token_repo,
+        audit_repo,
     ))
 }
