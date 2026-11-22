@@ -37,6 +37,7 @@ pub trait RoleRepository: Send + Sync {
         permission_id: ObjectId,
     ) -> Result<(), AppError>;
     async fn count_all(&self) -> Result<u64, AppError>;
+    async fn count_by_system(&self, is_system: bool) -> Result<u64, AppError>;
 }
 
 pub struct MongoRoleRepository {
@@ -149,5 +150,12 @@ impl RoleRepository for MongoRoleRepository {
 
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.collection.count_documents(doc! {}).await?)
+    }
+
+    async fn count_by_system(&self, is_system: bool) -> Result<u64, AppError> {
+        Ok(self
+            .collection
+            .count_documents(doc! { "is_system": is_system })
+            .await?)
     }
 }

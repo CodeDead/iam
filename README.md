@@ -39,7 +39,7 @@ The repository contains two independently structured projects communicating excl
 
 - **Pure JavaScript (ES6+)** with React 19, React Router 7, Mantine UI 9, Vite 8, and Axios — no TypeScript and no TanStack packages.
 - **Secure Token Lifecycle**: Access tokens live exclusively in JS memory (never `localStorage`), refresh tokens live in `HttpOnly` cookies, and concurrent `401` responses coalesce into a single `/api/v1/auth/refresh` request.
-- **RBAC UX & Session Isolation**: Navigation links, routes, dashboard stats, Audit Logs (`/audit-logs`), and profile Account Access Summary are guarded by user permissions; logging out clears route history state so a subsequent user never inherits a restricted redirect.
+- **RBAC UX & Security Dashboard**: Navigation links, routes, Audit Logs (`/audit-logs`), profile Account Access Summary, and the interactive Dashboard (KPI cards, 7-day stacked SVG security/audit activity chart, user status donut chart, role & permission distribution bars, token-reuse alert banner, recent audit feed, and active session counts) are strictly guarded by user permissions both server-side and client-side; logging out clears route history state so a subsequent user never inherits a restricted redirect.
 - **UX, Resilience & Accessibility**: Automatic OS color scheme detection (`defaultColorScheme="auto"`) with manual toggle, offline/timeout/gateway/non-JSON API error handling (`api.js` + `nginx.conf` `/api/` `503` JSON fallback), semantic `<main>` landmarks across all routes, meta description, and `public/robots.txt`.
 
 ---
@@ -91,6 +91,7 @@ The repository contains two independently structured projects communicating excl
 │   └── tests/
 │       ├── audit_log_tests.rs
 │       ├── auth_tests.rs
+│       ├── dashboard_tests.rs
 │       ├── profile_tests.rs
 │       ├── user_tests.rs
 │       ├── role_tests.rs
@@ -182,7 +183,7 @@ Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`
 ### Users, Roles, Permissions, Audit Logs, Profile & Dashboard
 | Method | Endpoint | Required Permission |
 | --- | --- | --- |
-| `GET` | `/api/v1/dashboard/stats` | Authenticated (response filtered per permission) |
+| `GET` | `/api/v1/dashboard/stats` | Authenticated (strictly filtered per permission: `users.read`, `roles.read`, `permissions.read`, `audit_logs.read`; always includes caller's own `my_active_sessions`) |
 | `GET` / `PUT` / `DELETE` | `/api/v1/profile` | `profile.read` / `profile.update` / `profile.delete` |
 | `PATCH` | `/api/v1/profile/password` | `profile.update` |
 | `GET` / `POST` | `/api/v1/users` | `users.read` / `users.create` |

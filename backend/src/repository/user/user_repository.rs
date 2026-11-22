@@ -37,8 +37,10 @@ pub trait UserRepository: Send + Sync {
     async fn delete(&self, id: ObjectId) -> Result<bool, AppError>;
     async fn remove_role_from_all_users(&self, role_id: ObjectId) -> Result<(), AppError>;
     async fn count_active_users_with_role(&self, role_id: ObjectId) -> Result<u64, AppError>;
+    async fn count_by_role_id(&self, role_id: ObjectId) -> Result<u64, AppError>;
     async fn count_all(&self) -> Result<u64, AppError>;
     async fn count_by_status(&self, status: AccountStatus) -> Result<u64, AppError>;
+    async fn count_created_since(&self, since: BsonDateTime) -> Result<u64, AppError>;
 }
 
 pub struct MongoUserRepository {
@@ -133,6 +135,13 @@ impl UserRepository for MongoUserRepository {
         Ok(count)
     }
 
+    async fn count_by_role_id(&self, role_id: ObjectId) -> Result<u64, AppError> {
+        Ok(self
+            .collection
+            .count_documents(doc! { "roles": role_id })
+            .await?)
+    }
+
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.collection.count_documents(doc! {}).await?)
     }
@@ -141,6 +150,13 @@ impl UserRepository for MongoUserRepository {
         Ok(self
             .collection
             .count_documents(doc! { "status": status.as_str() })
+            .await?)
+    }
+
+    async fn count_created_since(&self, since: BsonDateTime) -> Result<u64, AppError> {
+        Ok(self
+            .collection
+            .count_documents(doc! { "created_at": { "$gte": since } })
             .await?)
     }
 }

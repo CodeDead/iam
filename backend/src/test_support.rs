@@ -10,10 +10,10 @@ use crate::{
     app::AppState,
     common::{errors::AppError, pagination::SortOrder},
     config::Settings,
-    database::seed::seed_system_rbac,
+    database::{mongodb::bson_dt_to_chrono, seed::seed_system_rbac},
     repository::{
         audit::{
-            audit_log_repository::{AuditLogFilter, AuditLogRepository},
+            audit_log_repository::{AuditLogFilter, AuditLogRepository, DailyAuditBucket},
             dao::audit_log::AuditLog,
         },
         auth::{
@@ -161,6 +161,16 @@ impl UserRepository for InMemoryUserRepository {
         Ok(count)
     }
 
+    async fn count_by_role_id(&self, role_id: ObjectId) -> Result<u64, AppError> {
+        Ok(self
+            .users
+            .read()
+            .await
+            .values()
+            .filter(|u| u.roles.contains(&role_id))
+            .count() as u64)
+    }
+
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.users.read().await.len() as u64)
     }
@@ -172,6 +182,17 @@ impl UserRepository for InMemoryUserRepository {
             .await
             .values()
             .filter(|u| u.status == status)
+            .count() as u64)
+    }
+
+    async fn count_created_since(&self, since: BsonDateTime) -> Result<u64, AppError> {
+        let since_ms = since.timestamp_millis();
+        Ok(self
+            .users
+            .read()
+            .await
+            .values()
+            .filter(|u| u.created_at.timestamp_millis() >= since_ms)
             .count() as u64)
     }
 }
@@ -283,6 +304,16 @@ impl RoleRepository for InMemoryRoleRepository {
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.roles.read().await.len() as u64)
     }
+
+    async fn count_by_system(&self, is_system: bool) -> Result<u64, AppError> {
+        Ok(self
+            .roles
+            .read()
+            .await
+            .values()
+            .filter(|r| r.is_system == is_system)
+            .count() as u64)
+    }
 }
 
 #[derive(Default)]
@@ -373,6 +404,28 @@ impl PermissionRepository for InMemoryPermissionRepository {
 
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.permissions.read().await.len() as u64)
+    }
+
+    async fn count_by_system(&self, is_system: bool) -> Result<u64, AppError> {
+        Ok(self
+            .permissions
+            .read()
+            .await
+            .values()
+            .filter(|p| p.is_system == is_system)
+            .count() as u64)
+    }
+
+    async fn count_by_resource(&self) -> Result<Vec<(String, u64)>, AppError> {
+        let guard = self.permissions.read().await;
+        let mut counts: HashMap<String, u64> = HashMap::new();
+        for p in guard.values() {
+            *counts.entry(p.resource.clone()).or_insert(0) += 1;
+        }
+        let mut list: Vec<(String, u64)> = counts.into_iter().collect();
+        list.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        list.truncate(25);
+        Ok(list)
     }
 }
 
@@ -495,6 +548,32 @@ impl RefreshTokenRepository for InMemoryRefreshTokenRepository {
             .filter(|t| t.family_id == family_id)
             .count() as u64)
     }
+
+    async fn count_active_all(&self) -> Result<u64, AppError> {
+        let now_ms = BsonDateTime::now().timestamp_millis();
+        Ok(self
+            .tokens
+            .read()
+            .await
+            .values()
+            .filter(|t| t.revoked_at.is_none() && t.expires_at.timestamp_millis() > now_ms)
+            .count() as u64)
+    }
+
+    async fn count_active_for_user(&self, user_id: ObjectId) -> Result<u64, AppError> {
+        let now_ms = BsonDateTime::now().timestamp_millis();
+        Ok(self
+            .tokens
+            .read()
+            .await
+            .values()
+            .filter(|t| {
+                t.user_id == user_id
+                    && t.revoked_at.is_none()
+                    && t.expires_at.timestamp_millis() > now_ms
+            })
+            .count() as u64)
+    }
 }
 
 #[derive(Default)]
@@ -589,6 +668,91 @@ impl AuditLogRepository for InMemoryAuditLogRepository {
 
     async fn count_all(&self) -> Result<u64, AppError> {
         Ok(self.entries.read().await.len() as u64)
+    }
+
+    async fn count_since(&self, since: BsonDateTime) -> Result<u64, AppError> {
+        let since_ms = since.timestamp_millis();
+        Ok(self
+            .entries
+            .read()
+            .await
+            .iter()
+            .filter(|e| e.created_at.timestamp_millis() >= since_ms)
+            .count() as u64)
+    }
+
+    async fn count_action_since(&self, action: &str, since: BsonDateTime) -> Result<u64, AppError> {
+        let since_ms = since.timestamp_millis();
+        Ok(self
+            .entries
+            .read()
+            .await
+            .iter()
+            .filter(|e| e.action == action && e.created_at.timestamp_millis() >= since_ms)
+            .count() as u64)
+    }
+
+    async fn aggregate_daily_activity(
+        &self,
+        since: BsonDateTime,
+    ) -> Result<Vec<DailyAuditBucket>, AppError> {
+        let since_ms = since.timestamp_millis();
+        let guard = self.entries.read().await;
+        let mut by_day: HashMap<String, DailyAuditBucket> = HashMap::new();
+
+        for entry in guard
+            .iter()
+            .filter(|e| e.created_at.timestamp_millis() >= since_ms)
+        {
+            let date = bson_dt_to_chrono(entry.created_at)
+                .format("%Y-%m-%d")
+                .to_string();
+            let bucket = by_day
+                .entry(date.clone())
+                .or_insert_with(|| DailyAuditBucket {
+                    date,
+                    total: 0,
+                    auth_success: 0,
+                    auth_failed: 0,
+                    admin_changes: 0,
+                });
+            bucket.total += 1;
+            if matches!(entry.action.as_str(), "auth.login" | "auth.registered") {
+                bucket.auth_success += 1;
+            }
+            if matches!(
+                entry.action.as_str(),
+                "auth.login_failed" | "auth.refresh_token_reused"
+            ) {
+                bucket.auth_failed += 1;
+            }
+            if matches!(entry.resource_type.as_str(), "user" | "role" | "permission") {
+                bucket.admin_changes += 1;
+            }
+        }
+
+        let mut list: Vec<DailyAuditBucket> = by_day.into_values().collect();
+        list.sort_by(|a, b| a.date.cmp(&b.date));
+        Ok(list)
+    }
+
+    async fn count_by_resource_type_since(
+        &self,
+        since: BsonDateTime,
+    ) -> Result<Vec<(String, u64)>, AppError> {
+        let since_ms = since.timestamp_millis();
+        let guard = self.entries.read().await;
+        let mut counts: HashMap<String, u64> = HashMap::new();
+        for entry in guard
+            .iter()
+            .filter(|e| e.created_at.timestamp_millis() >= since_ms)
+        {
+            *counts.entry(entry.resource_type.clone()).or_insert(0) += 1;
+        }
+        let mut list: Vec<(String, u64)> = counts.into_iter().collect();
+        list.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        list.truncate(10);
+        Ok(list)
     }
 }
 
