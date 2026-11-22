@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  Grid,
   Group,
   Paper,
   SimpleGrid,
@@ -33,6 +34,7 @@ import { ErrorAlert } from '../../components/common/ErrorAlert';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PermissionGuard } from '../../components/common/PermissionGuard';
 import { useAuth } from '../../hooks/useAuth';
+import { usePermissions } from '../../hooks/usePermissions';
 import { dashboardService } from '../../services/dashboardService';
 import { extractApiError } from '../../utils/errors';
 import { formatDateTime, formatUserName } from '../../utils/formatters';
@@ -78,6 +80,7 @@ function getAuditBadgeColor(action = '') {
 
 export function DashboardPage() {
   const { user, permissions } = useAuth();
+  const { hasPermission } = usePermissions();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -112,6 +115,36 @@ export function DashboardPage() {
     stats?.users && stats.users.total > 0
       ? Math.round((stats.users.active / stats.users.total) * 100)
       : 0;
+
+  const showActivityChart = Boolean(hasPermission('audit_logs.read') && stats?.audit);
+  const showUserStatusChart = Boolean(hasPermission('users.read') && stats?.users);
+
+  const distributionCards = [];
+  if (hasPermission('roles.read') && stats?.roles) {
+    distributionCards.push(<RoleDistributionCard key="roles" roles={stats.roles} />);
+  }
+  if (hasPermission('permissions.read') && stats?.permissions) {
+    distributionCards.push(
+      <ResourceBreakdownCard
+        key="permissions"
+        title="Permissions by Resource"
+        subtitle="Granular RBAC permissions grouped by domain"
+        items={stats.permissions.by_resource}
+        badgeColor="teal"
+      />
+    );
+  }
+  if (hasPermission('audit_logs.read') && stats?.audit) {
+    distributionCards.push(
+      <ResourceBreakdownCard
+        key="audit-resources"
+        title="Audit Events by Resource (7d)"
+        subtitle="Security and administration activity by category"
+        items={stats.audit.by_resource_type}
+        badgeColor="blue"
+      />
+    );
+  }
 
   return (
     <Stack gap="lg">
@@ -164,14 +197,23 @@ export function DashboardPage() {
 
       {loading ? (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, md: 3, xl: 6 }} spacing="md">
-            {Array.from({ length: 6 }).map((_, i) => (
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+            {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} height={106} radius="md" />
             ))}
           </SimpleGrid>
-          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-            <Skeleton height={260} radius="md" />
-            <Skeleton height={260} radius="md" />
+          <Grid gutter="md">
+            <Grid.Col span={{ base: 12, lg: 7 }}>
+              <Skeleton height={260} radius="md" />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, lg: 5 }}>
+              <Skeleton height={260} radius="md" />
+            </Grid.Col>
+          </Grid>
+          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} height={220} radius="md" />
+            ))}
           </SimpleGrid>
         </>
       ) : (
@@ -265,41 +307,32 @@ export function DashboardPage() {
             )}
           </SimpleGrid>
 
-          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-            <PermissionGuard permission="audit_logs.read">
-              {stats?.audit && <ActivityTrendChart dailyActivity={stats.audit.daily_activity} />}
-            </PermissionGuard>
-
-            <PermissionGuard permission="users.read">
-              {stats?.users && <UserStatusDonutChart users={stats.users} />}
-            </PermissionGuard>
-
-            <PermissionGuard permission="roles.read">
-              {stats?.roles && <RoleDistributionCard roles={stats.roles} />}
-            </PermissionGuard>
-
-            <PermissionGuard permission="permissions.read">
-              {stats?.permissions && (
-                <ResourceBreakdownCard
-                  title="Permissions by Resource"
-                  subtitle="Granular RBAC permissions grouped by domain"
-                  items={stats.permissions.by_resource}
-                  badgeColor="teal"
-                />
+          {(showActivityChart || showUserStatusChart) && (
+            <Grid gutter="md" align="stretch">
+              {showActivityChart && (
+                <Grid.Col span={{ base: 12, lg: showUserStatusChart ? 7 : 12 }}>
+                  <ActivityTrendChart dailyActivity={stats.audit.daily_activity} />
+                </Grid.Col>
               )}
-            </PermissionGuard>
-
-            <PermissionGuard permission="audit_logs.read">
-              {stats?.audit && (
-                <ResourceBreakdownCard
-                  title="Audit Events by Resource (7d)"
-                  subtitle="Security and administration activity by category"
-                  items={stats.audit.by_resource_type}
-                  badgeColor="blue"
-                />
+              {showUserStatusChart && (
+                <Grid.Col span={{ base: 12, lg: showActivityChart ? 5 : 12 }}>
+                  <UserStatusDonutChart users={stats.users} />
+                </Grid.Col>
               )}
-            </PermissionGuard>
-          </SimpleGrid>
+            </Grid>
+          )}
+
+          {distributionCards.length > 0 && (
+            <SimpleGrid
+              cols={{
+                base: 1,
+                lg: distributionCards.length,
+              }}
+              spacing="md"
+            >
+              {distributionCards}
+            </SimpleGrid>
+          )}
 
           <PermissionGuard permission="audit_logs.read">
             {stats?.audit && (
