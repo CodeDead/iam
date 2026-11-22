@@ -13,6 +13,7 @@ use crate::{
     middleware::{AuthenticatedUser, PermissionCache},
     repository::{
         auth::refresh_token_repository::RefreshTokenRepository,
+        organisation::organisation_repository::OrganisationRepository,
         permission::permission_repository::PermissionRepository,
         role::{dao::role::Role, role_repository::RoleRepository},
         user::{
@@ -21,8 +22,15 @@ use crate::{
         },
     },
     security::password::hash_password,
-    services::audit::{AuditEvent, AuditService},
+    services::{
+        audit::{AuditEvent, AuditService},
+        organisations::{
+            build_user_organisation_summary, finalize_user_memberships_on_account_delete,
+            validate_user_memberships_for_account_delete,
+        },
+    },
     web::dto::{
+        organisations::UserOrganisationSummary,
         permissions::PermissionResponse,
         roles::RoleSummary,
         users::{
@@ -38,16 +46,19 @@ pub struct UserService {
     role_repo: Arc<dyn RoleRepository>,
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+    organisation_repo: Arc<dyn OrganisationRepository>,
     permission_cache: PermissionCache,
     audit_service: AuditService,
 }
 
 impl UserService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         user_repo: Arc<dyn UserRepository>,
         role_repo: Arc<dyn RoleRepository>,
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+        organisation_repo: Arc<dyn OrganisationRepository>,
         permission_cache: PermissionCache,
         audit_service: AuditService,
     ) -> Self {
@@ -56,6 +67,7 @@ impl UserService {
             role_repo,
             permission_repo,
             refresh_token_repo,
+            organisation_repo,
             permission_cache,
             audit_service,
         }
@@ -215,6 +227,7 @@ impl UserService {
                 "Only a Super Administrator can modify a Super Administrator account",
             ));
         }
+        self.ensure_actor_can_manage_target(actor, &user).await?;
 
         let previous_email = user.email.clone();
         if let Some(first_name) = req.first_name {
@@ -291,6 +304,7 @@ impl UserService {
                 "Only a Super Administrator can change the status of a Super Administrator",
             ));
         }
+        self.ensure_actor_can_manage_target(actor, &user).await?;
 
         if target_is_super_admin
             && user.status == AccountStatus::Active
@@ -358,16 +372,25 @@ impl UserService {
                 "Only a Super Administrator can delete a Super Administrator",
             ));
         }
+        self.ensure_actor_can_manage_target(actor, &user).await?;
 
         if target_is_super_admin && user.status == AccountStatus::Active {
             self.ensure_not_last_active_super_admin().await?;
         }
 
+        validate_user_memberships_for_account_delete(&self.organisation_repo, target_id).await?;
+        self.user_repo.delete(target_id).await?;
+        finalize_user_memberships_on_account_delete(
+            &self.organisation_repo,
+            &self.audit_service,
+            actor,
+            target_id,
+        )
+        .await?;
         self.refresh_token_repo
             .delete_all_for_user(target_id)
             .await?;
         self.permission_cache.invalidate_user(target_id).await;
-        self.user_repo.delete(target_id).await?;
         self.audit_service
             .record(
                 AuditEvent::by_actor(
@@ -420,6 +443,7 @@ impl UserService {
                 "Only a Super Administrator can modify roles of a Super Administrator",
             ));
         }
+        self.ensure_actor_can_manage_target(actor, &user).await?;
 
         let new_roles = self.resolve_and_validate_roles(&req.role_ids).await?;
         self.ensure_actor_can_assign_roles(actor, &new_roles)
@@ -481,6 +505,29 @@ impl UserService {
         let mut perms = self.permission_repo.find_by_ids(&perm_ids).await?;
         perms.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(perms.into_iter().map(PermissionResponse::from).collect())
+    }
+
+    pub async fn get_organisations(
+        &self,
+        actor: &AuthenticatedUser,
+        id: &str,
+    ) -> Result<Vec<UserOrganisationSummary>, AppError> {
+        actor.require_permission("users.read")?;
+        actor.require_permission("organisations.read")?;
+        let user_id = parse_object_id(id)?;
+        let user = self.find_user_or_not_found(user_id).await?;
+        let orgs = self
+            .organisation_repo
+            .find_by_member_user_id(user.id)
+            .await?;
+
+        Ok(orgs
+            .into_iter()
+            .filter_map(|org| {
+                let membership = org.members.iter().find(|m| m.user_id == user.id)?;
+                Some(build_user_organisation_summary(&org, membership))
+            })
+            .collect())
     }
 
     async fn find_user_or_not_found(&self, id: ObjectId) -> Result<User, AppError> {
@@ -552,6 +599,44 @@ impl UserService {
                         "Cannot assign a role granting permission '{}' that you do not hold",
                         perm.name
                     ),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn ensure_actor_can_manage_target(
+        &self,
+        actor: &AuthenticatedUser,
+        target: &User,
+    ) -> Result<(), AppError> {
+        if actor.is_super_admin || actor.user_id == target.id {
+            return Ok(());
+        }
+
+        let target_access = self
+            .permission_cache
+            .resolve_user_access(
+                target.id,
+                &target.roles,
+                &self.role_repo,
+                &self.permission_repo,
+            )
+            .await?;
+
+        if target_access.is_super_admin {
+            return Err(AppError::forbidden(
+                "PRIVILEGE_ESCALATION_DENIED",
+                "Only a Super Administrator can manage a Super Administrator account",
+            ));
+        }
+
+        for perm in &target_access.permissions {
+            if !actor.has_permission(perm) {
+                return Err(AppError::forbidden(
+                    "PRIVILEGE_ESCALATION_DENIED",
+                    "Cannot modify or delete an account that holds permissions you do not hold",
                 ));
             }
         }

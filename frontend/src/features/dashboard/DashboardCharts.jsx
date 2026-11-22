@@ -30,6 +30,8 @@ const RESOURCE_COLORS = {
   auth: 'teal',
   user: 'indigo',
   users: 'indigo',
+  organisation: 'grape',
+  organisations: 'grape',
   role: 'violet',
   roles: 'violet',
   permission: 'cyan',
@@ -134,12 +136,25 @@ export function ActivityTrendChart({ dailyActivity = [] }) {
                   { key: 'failed', value: authFailed, fill: 'var(--mantine-color-red-6)' },
                 ];
 
+                const activeSegments = segments.filter((seg) => seg.value > 0);
+                const rawHeights = activeSegments.map((seg) =>
+                  Math.max(2, (seg.value / maxTotal) * plotHeight)
+                );
+                const rawSum = rawHeights.reduce((acc, h) => acc + h, 0);
+                const scale = rawSum > plotHeight ? plotHeight / rawSum : 1;
+
                 let currentY = baseY;
                 const tooltipText = `${formatShortUtcDate(point.date)}: ${total} total (${authSuccess} auth, ${adminChanges} admin, ${authFailed} alerts, ${other} other)`;
 
                 return (
                   <Tooltip key={point.date} label={tooltipText} withArrow position="top">
-                    <g style={{ cursor: 'pointer' }}>
+                    <g
+                      tabIndex={0}
+                      role="img"
+                      aria-label={tooltipText}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <title>{tooltipText}</title>
                       <rect
                         x={index * colWidth + 4}
                         y={topPad}
@@ -157,9 +172,8 @@ export function ActivityTrendChart({ dailyActivity = [] }) {
                           fill="var(--mantine-color-default-border)"
                         />
                       ) : (
-                        segments.map((seg) => {
-                          if (seg.value <= 0) return null;
-                          const segHeight = Math.max(2, (seg.value / maxTotal) * plotHeight);
+                        activeSegments.map((seg, segIdx) => {
+                          const segHeight = rawHeights[segIdx] * scale;
                           currentY -= segHeight;
                           return (
                             <rect
@@ -343,6 +357,69 @@ export function RoleDistributionCard({ roles }) {
                     radius="xl"
                     color={role.is_system ? 'violet' : 'teal'}
                     aria-label={`${role.name} distribution bar`}
+                  />
+                </Stack>
+              );
+            })}
+          </Stack>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
+export function OrganisationDistributionCard({ organisations }) {
+  const items = organisations?.largest_organisations || [];
+  const maxMembers = Math.max(1, ...items.map((org) => org.member_count || 0));
+
+  return (
+    <Card withBorder radius="md" p="lg" h="100%">
+      <Stack gap="md">
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Title order={4}>Top Organisations by Members</Title>
+            <Text size="xs" c="dimmed">
+              {organisations?.active_memberships || 0} active ·{' '}
+              {organisations?.invited_memberships || 0} invited ·{' '}
+              {organisations?.suspended_memberships || 0} suspended
+            </Text>
+          </div>
+          <Badge variant="light" color="grape">
+            {organisations?.total || 0} orgs
+          </Badge>
+        </Group>
+
+        {items.length === 0 ? (
+          <Text size="sm" c="dimmed">
+            No organisations created yet.
+          </Text>
+        ) : (
+          <Stack gap="sm">
+            {items.slice(0, 8).map((org) => {
+              const count = org.member_count || 0;
+              const pct =
+                maxMembers > 0 ? Math.max(count > 0 ? 6 : 0, (count / maxMembers) * 100) : 0;
+              return (
+                <Stack key={org.id} gap={4}>
+                  <Group justify="space-between" wrap="nowrap" gap="xs">
+                    <Text size="sm" fw={500} truncate>
+                      {org.name}
+                    </Text>
+                    <Group gap="xs" wrap="nowrap">
+                      <Text size="xs" fw={600}>
+                        {org.active_member_count} active
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        / {count} total
+                      </Text>
+                    </Group>
+                  </Group>
+                  <Progress
+                    value={pct}
+                    size="sm"
+                    radius="xl"
+                    color="grape"
+                    aria-label={`${org.name} has ${count} members`}
                   />
                 </Stack>
               );

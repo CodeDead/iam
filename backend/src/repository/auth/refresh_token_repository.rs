@@ -3,6 +3,7 @@ use futures_util::TryStreamExt;
 use mongodb::{
     Client, Collection, Database,
     bson::{DateTime as BsonDateTime, doc, oid::ObjectId},
+    error::{ErrorKind, TRANSIENT_TRANSACTION_ERROR},
     options::FindOptions,
 };
 use tracing::warn;
@@ -77,7 +78,7 @@ impl RefreshTokenRepository for MongoRefreshTokenRepository {
             if let Err(err) = session.start_transaction().await {
                 warn!(error = %err, "Failed to start MongoDB transaction; falling back to sequential rotation");
             } else {
-                let update_res = self
+                let update_res = match self
                     .collection
                     .update_one(
                         doc! {
@@ -92,18 +93,43 @@ impl RefreshTokenRepository for MongoRefreshTokenRepository {
                         },
                     )
                     .session(&mut session)
-                    .await?;
+                    .await
+                {
+                    Ok(res) => res,
+                    Err(err) => {
+                        let _ = session.abort_transaction().await;
+                        if is_write_conflict(&err) {
+                            // Concurrent transaction contested the same refresh token.
+                            return Ok(false);
+                        }
+                        return Err(err.into());
+                    }
+                };
 
                 if update_res.modified_count == 0 {
                     let _ = session.abort_transaction().await;
                     return Ok(false);
                 }
 
-                self.collection
+                if let Err(err) = self
+                    .collection
                     .insert_one(new_token)
                     .session(&mut session)
-                    .await?;
-                session.commit_transaction().await?;
+                    .await
+                {
+                    let _ = session.abort_transaction().await;
+                    if is_write_conflict(&err) {
+                        return Ok(false);
+                    }
+                    return Err(err.into());
+                }
+
+                if let Err(err) = session.commit_transaction().await {
+                    if is_write_conflict(&err) {
+                        return Ok(false);
+                    }
+                    return Err(err.into());
+                }
                 return Ok(true);
             }
         }
@@ -238,4 +264,11 @@ impl RefreshTokenRepository for MongoRefreshTokenRepository {
             })
             .await?)
     }
+}
+
+fn is_write_conflict(err: &mongodb::error::Error) -> bool {
+    if err.contains_label(TRANSIENT_TRANSACTION_ERROR) {
+        return true;
+    }
+    matches!(*err.kind, ErrorKind::Command(ref cmd) if cmd.code == 112)
 }

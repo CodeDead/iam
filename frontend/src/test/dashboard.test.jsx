@@ -21,7 +21,14 @@ const fullAdminSession = {
     last_login_at: '2026-11-22T14:00:00Z',
     roles: [{ id: 'r1', name: 'Super Administrator' }],
   },
-  permissions: ['users.read', 'roles.read', 'permissions.read', 'audit_logs.read', 'profile.read'],
+  permissions: [
+    'users.read',
+    'organisations.read',
+    'roles.read',
+    'permissions.read',
+    'audit_logs.read',
+    'profile.read',
+  ],
 };
 
 const standardUserSession = {
@@ -39,6 +46,17 @@ const standardUserSession = {
 
 const fullStatsPayload = {
   my_active_sessions: 2,
+  my_organisations: [
+    {
+      id: 'org1',
+      name: 'Acme Inc.',
+      role: 'owner',
+      status: 'active',
+      member_count: 4,
+      joined_at: '2026-11-22T12:00:00Z',
+      created_at: '2026-11-22T12:00:00Z',
+    },
+  ],
   users: {
     total: 12,
     active: 10,
@@ -78,6 +96,18 @@ const fullStatsPayload = {
     by_resource: [
       { resource: 'users', count: 6 },
       { resource: 'roles', count: 4 },
+    ],
+  },
+  organisations: {
+    total: 2,
+    new_last_7_days: 1,
+    total_memberships: 6,
+    active_memberships: 5,
+    invited_memberships: 1,
+    suspended_memberships: 0,
+    largest_organisations: [
+      { id: 'org1', name: 'Acme Inc.', member_count: 4, active_member_count: 4 },
+      { id: 'org2', name: 'Globex Corp', member_count: 2, active_member_count: 1 },
     ],
   },
   audit: {
@@ -128,12 +158,14 @@ describe('DashboardPage', () => {
     expect(await screen.findByText(/refresh token reuse detected/i)).toBeInTheDocument();
     expect(screen.getByText(/7-day security & audit activity/i)).toBeInTheDocument();
     expect(screen.getByText(/user account status/i)).toBeInTheDocument();
+    expect(screen.getByText(/top organisations by members/i)).toBeInTheDocument();
     expect(screen.getByText(/role coverage & distribution/i)).toBeInTheDocument();
     expect(screen.getByText(/permissions by resource/i)).toBeInTheDocument();
     expect(screen.getByText(/audit events by resource \(7d\)/i)).toBeInTheDocument();
     expect(screen.getByText(/recent security & audit activity/i)).toBeInTheDocument();
     expect(screen.getByText(/failed login attempt for 'admin@example.com'/i)).toBeInTheDocument();
     expect(screen.getByText('Compliance Auditor')).toBeInTheDocument();
+    expect(screen.getByText('Globex Corp')).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: /7-day audit activity bar chart showing 25 total events/i })
     ).toBeInTheDocument();
@@ -142,14 +174,28 @@ describe('DashboardPage', () => {
   it('hides privileged cards, charts, and audit feed for standard users without admin permissions', async () => {
     dashboardService.getStats.mockResolvedValue({
       my_active_sessions: 1,
+      my_organisations: [
+        {
+          id: 'org1',
+          name: 'Acme Inc.',
+          role: 'owner',
+          status: 'active',
+          member_count: 1,
+          joined_at: '2026-11-22T12:00:00Z',
+          created_at: '2026-11-22T12:00:00Z',
+        },
+      ],
     });
 
     renderWithProviders(<DashboardPage />, { initialSession: standardUserSession });
 
     expect(await screen.findByText(/your active sessions/i)).toBeInTheDocument();
+    expect(screen.getByText(/your organisations \(1\):/i)).toBeInTheDocument();
+    expect(screen.getByText(/acme inc\./i)).toBeInTheDocument();
     expect(screen.getByText(/your access & quick navigation/i)).toBeInTheDocument();
     expect(screen.queryByText(/7-day security & audit activity/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/user account status/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/top organisations by members/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/role coverage & distribution/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/permissions by resource/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent security & audit activity/i)).not.toBeInTheDocument();

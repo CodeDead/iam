@@ -4,7 +4,10 @@ use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use crate::{
-    common::{pagination::SortOrder, validation::validate_permission_segment},
+    common::{
+        pagination::SortOrder,
+        validation::{validate_description_trimmed, validate_permission_segment},
+    },
     database::mongodb::bson_dt_to_chrono,
     repository::permission::dao::permission::Permission,
 };
@@ -43,11 +46,7 @@ pub struct CreatePermissionRequest {
     pub resource: String,
     #[validate(custom(function = "validate_permission_segment"))]
     pub action: String,
-    #[validate(length(
-        min = 1,
-        max = 255,
-        message = "Description must be 1 to 255 characters"
-    ))]
+    #[validate(custom(function = "validate_description_trimmed"))]
     pub description: String,
 }
 
@@ -58,11 +57,7 @@ pub struct UpdatePermissionRequest {
     pub resource: Option<String>,
     #[validate(custom(function = "validate_permission_segment"))]
     pub action: Option<String>,
-    #[validate(length(
-        min = 1,
-        max = 255,
-        message = "Description must be 1 to 255 characters"
-    ))]
+    #[validate(custom(function = "validate_description_trimmed"))]
     pub description: Option<String>,
 }
 

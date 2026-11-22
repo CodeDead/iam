@@ -47,4 +47,9 @@ export const userService = {
     const response = await apiClient.get(`/users/${id}/permissions`);
     return response.data.data;
   },
+
+  async getOrganisations(id) {
+    const response = await apiClient.get(`/users/${id}/organisations`);
+    return response.data.data;
+  },
 };

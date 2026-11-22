@@ -9,7 +9,7 @@ use crate::{
     app::AppState,
     common::{
         errors::AppError,
-        responses::{ApiResponse, EmptyData},
+        responses::{ApiResponse, EmptyData, ErrorResponse},
     },
     config::settings::CookieSettings,
     middleware::{AuthenticatedUser, extract_client_ip, validate_csrf_double_submit},
@@ -23,8 +23,9 @@ use crate::{
     request_body = RegisterRequest,
     responses(
         (status = 201, description = "User registered successfully", body = ApiResponse<AuthTokenResponse>),
-        (status = 409, description = "Email already exists"),
-        (status = 422, description = "Validation error")
+        (status = 409, description = "Email or organisation already exists", body = ErrorResponse),
+        (status = 422, description = "Validation error", body = ErrorResponse),
+        (status = 429, description = "Rate limit exceeded", body = ErrorResponse)
     )
 )]
 pub async fn register(
@@ -39,13 +40,15 @@ pub async fn register(
         .await?;
 
     let mut response = HttpResponse::Created();
-    attach_auth_cookies(
-        &mut response,
-        &state.settings.cookie,
-        state.settings.jwt.refresh_token_ttl,
-        &session.raw_refresh_token,
-        &session.csrf_token,
-    );
+    if let (Some(raw_refresh), Some(csrf)) = (&session.raw_refresh_token, &session.csrf_token) {
+        attach_auth_cookies(
+            &mut response,
+            &state.settings.cookie,
+            state.settings.jwt.refresh_token_ttl,
+            raw_refresh,
+            csrf,
+        );
+    }
 
     Ok(response.json(ApiResponse {
         success: true,
@@ -61,8 +64,9 @@ pub async fn register(
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Authenticated successfully", body = ApiResponse<AuthTokenResponse>),
-        (status = 401, description = "Invalid credentials"),
-        (status = 403, description = "Account disabled or locked")
+        (status = 401, description = "Invalid credentials", body = ErrorResponse),
+        (status = 403, description = "Account disabled, locked, or unverified", body = ErrorResponse),
+        (status = 429, description = "Rate limit exceeded", body = ErrorResponse)
     )
 )]
 pub async fn login(
@@ -77,13 +81,15 @@ pub async fn login(
         .await?;
 
     let mut response = HttpResponse::Ok();
-    attach_auth_cookies(
-        &mut response,
-        &state.settings.cookie,
-        state.settings.jwt.refresh_token_ttl,
-        &session.raw_refresh_token,
-        &session.csrf_token,
-    );
+    if let (Some(raw_refresh), Some(csrf)) = (&session.raw_refresh_token, &session.csrf_token) {
+        attach_auth_cookies(
+            &mut response,
+            &state.settings.cookie,
+            state.settings.jwt.refresh_token_ttl,
+            raw_refresh,
+            csrf,
+        );
+    }
 
     Ok(response.json(ApiResponse {
         success: true,
@@ -96,10 +102,13 @@ pub async fn login(
     post,
     path = "/api/v1/auth/refresh",
     tag = "Authentication",
+    params(
+        ("X-CSRF-Token" = String, Header, description = "Double-submit CSRF token matching the csrf_token cookie (requires HttpOnly refresh_token cookie)")
+    ),
     responses(
         (status = 200, description = "Access token refreshed", body = ApiResponse<AuthTokenResponse>),
-        (status = 401, description = "Refresh token invalid, expired, or reused"),
-        (status = 403, description = "CSRF validation failed or account inactive")
+        (status = 401, description = "Refresh token invalid, expired, or reused", body = ErrorResponse),
+        (status = 403, description = "CSRF validation failed or account inactive", body = ErrorResponse)
     )
 )]
 pub async fn refresh(
@@ -122,13 +131,15 @@ pub async fn refresh(
         .await?;
 
     let mut response = HttpResponse::Ok();
-    attach_auth_cookies(
-        &mut response,
-        &state.settings.cookie,
-        state.settings.jwt.refresh_token_ttl,
-        &session.raw_refresh_token,
-        &session.csrf_token,
-    );
+    if let (Some(raw_refresh), Some(csrf)) = (&session.raw_refresh_token, &session.csrf_token) {
+        attach_auth_cookies(
+            &mut response,
+            &state.settings.cookie,
+            state.settings.jwt.refresh_token_ttl,
+            raw_refresh,
+            csrf,
+        );
+    }
 
     Ok(response.json(ApiResponse {
         success: true,
@@ -141,9 +152,12 @@ pub async fn refresh(
     post,
     path = "/api/v1/auth/logout",
     tag = "Authentication",
+    params(
+        ("X-CSRF-Token" = Option<String>, Header, description = "Double-submit CSRF token required when the HttpOnly refresh_token cookie is present")
+    ),
     responses(
         (status = 200, description = "Signed out successfully", body = ApiResponse<EmptyData>),
-        (status = 403, description = "CSRF validation failed")
+        (status = 403, description = "CSRF validation failed", body = ErrorResponse)
     )
 )]
 pub async fn logout(

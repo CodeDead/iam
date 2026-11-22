@@ -19,6 +19,12 @@ use crate::{
         auth::{
             dao::refresh_token::RefreshToken, refresh_token_repository::RefreshTokenRepository,
         },
+        organisation::{
+            dao::organisation::{Organisation, OrganisationMemberRole, OrganisationMemberStatus},
+            organisation_repository::{
+                OrganisationFilter, OrganisationMembershipCounts, OrganisationRepository,
+            },
+        },
         permission::{
             dao::permission::Permission,
             permission_repository::{PermissionFilter, PermissionRepository},
@@ -58,6 +64,11 @@ impl UserRepository for InMemoryUserRepository {
         Ok(self.users.read().await.get(&id).cloned())
     }
 
+    async fn find_by_ids(&self, ids: &[ObjectId]) -> Result<Vec<User>, AppError> {
+        let guard = self.users.read().await;
+        Ok(ids.iter().filter_map(|id| guard.get(id).cloned()).collect())
+    }
+
     async fn find_by_email(&self, email: &str) -> Result<Option<User>, AppError> {
         Ok(self
             .users
@@ -69,14 +80,21 @@ impl UserRepository for InMemoryUserRepository {
     }
 
     async fn find_by_role_id(&self, role_id: ObjectId) -> Result<Vec<User>, AppError> {
-        Ok(self
+        let mut items: Vec<User> = self
             .users
             .read()
             .await
             .values()
             .filter(|u| u.roles.contains(&role_id))
             .cloned()
-            .collect())
+            .collect();
+        items.sort_by(|a, b| {
+            b.created_at
+                .timestamp_millis()
+                .cmp(&a.created_at.timestamp_millis())
+        });
+        items.truncate(500);
+        Ok(items)
     }
 
     async fn find_all(&self, filter: &UserFilter) -> Result<(Vec<User>, u64), AppError> {
@@ -113,6 +131,15 @@ impl UserRepository for InMemoryUserRepository {
                 "email" => a.email.cmp(&b.email),
                 "first_name" => a.first_name.cmp(&b.first_name),
                 "last_name" => a.last_name.cmp(&b.last_name),
+                "status" => a.status.as_str().cmp(b.status.as_str()),
+                "updated_at" => a
+                    .updated_at
+                    .timestamp_millis()
+                    .cmp(&b.updated_at.timestamp_millis()),
+                "last_login_at" => a
+                    .last_login_at
+                    .map(|d| d.timestamp_millis())
+                    .cmp(&b.last_login_at.map(|d| d.timestamp_millis())),
                 _ => a
                     .created_at
                     .timestamp_millis()
@@ -134,8 +161,53 @@ impl UserRepository for InMemoryUserRepository {
 
     async fn update(&self, user: &User) -> Result<User, AppError> {
         let mut guard = self.users.write().await;
-        guard.insert(user.id, user.clone());
+        if guard
+            .values()
+            .any(|u| u.id != user.id && u.email == user.email)
+        {
+            return Err(AppError::conflict(
+                "DUPLICATE_RESOURCE",
+                "Email already exists",
+            ));
+        }
+        if guard.contains_key(&user.id) {
+            guard.insert(user.id, user.clone());
+        }
         Ok(user.clone())
+    }
+
+    async fn record_login(
+        &self,
+        id: ObjectId,
+        now: BsonDateTime,
+    ) -> Result<Option<User>, AppError> {
+        let mut guard = self.users.write().await;
+        if let Some(user) = guard.get_mut(&id)
+            && user.status == AccountStatus::Active
+        {
+            user.last_login_at = Some(now);
+            user.updated_at = now;
+            return Ok(Some(user.clone()));
+        }
+        Ok(None)
+    }
+
+    async fn update_password(
+        &self,
+        id: ObjectId,
+        password_hash: &str,
+        now: BsonDateTime,
+    ) -> Result<bool, AppError> {
+        let mut guard = self.users.write().await;
+        if let Some(user) = guard.get_mut(&id)
+            && user.status == AccountStatus::Active
+        {
+            user.password_hash = password_hash.to_string();
+            user.token_version = user.token_version.saturating_add(1);
+            user.updated_at = now;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     async fn delete(&self, id: ObjectId) -> Result<bool, AppError> {
@@ -144,8 +216,13 @@ impl UserRepository for InMemoryUserRepository {
 
     async fn remove_role_from_all_users(&self, role_id: ObjectId) -> Result<(), AppError> {
         let mut guard = self.users.write().await;
+        let now = BsonDateTime::now();
         for user in guard.values_mut() {
+            let before = user.roles.len();
             user.roles.retain(|r| *r != role_id);
+            if user.roles.len() != before {
+                user.updated_at = now;
+            }
         }
         Ok(())
     }
@@ -169,6 +246,17 @@ impl UserRepository for InMemoryUserRepository {
             .values()
             .filter(|u| u.roles.contains(&role_id))
             .count() as u64)
+    }
+
+    async fn count_by_roles(&self) -> Result<HashMap<ObjectId, u64>, AppError> {
+        let guard = self.users.read().await;
+        let mut counts: HashMap<ObjectId, u64> = HashMap::new();
+        for user in guard.values() {
+            for role_id in &user.roles {
+                *counts.entry(*role_id).or_insert(0) += 1;
+            }
+        }
+        Ok(counts)
     }
 
     async fn count_all(&self) -> Result<u64, AppError> {
@@ -266,7 +354,17 @@ impl RoleRepository for InMemoryRoleRepository {
             .collect();
 
         items.sort_by(|a, b| {
-            let ord = a.name.cmp(&b.name);
+            let ord = match filter.sort_by.as_str() {
+                "created_at" => a
+                    .created_at
+                    .timestamp_millis()
+                    .cmp(&b.created_at.timestamp_millis()),
+                "updated_at" => a
+                    .updated_at
+                    .timestamp_millis()
+                    .cmp(&b.updated_at.timestamp_millis()),
+                _ => a.name.cmp(&b.name),
+            };
             if matches!(filter.sort_order, Some(SortOrder::Desc)) {
                 ord.reverse()
             } else {
@@ -282,7 +380,10 @@ impl RoleRepository for InMemoryRoleRepository {
     }
 
     async fn update(&self, role: &Role) -> Result<Role, AppError> {
-        self.roles.write().await.insert(role.id, role.clone());
+        let mut guard = self.roles.write().await;
+        if guard.contains_key(&role.id) {
+            guard.insert(role.id, role.clone());
+        }
         Ok(role.clone())
     }
 
@@ -295,8 +396,13 @@ impl RoleRepository for InMemoryRoleRepository {
         permission_id: ObjectId,
     ) -> Result<(), AppError> {
         let mut guard = self.roles.write().await;
+        let now = BsonDateTime::now();
         for role in guard.values_mut() {
+            let before = role.permissions.len();
             role.permissions.retain(|p| *p != permission_id);
+            if role.permissions.len() != before {
+                role.updated_at = now;
+            }
         }
         Ok(())
     }
@@ -382,7 +488,26 @@ impl PermissionRepository for InMemoryPermissionRepository {
             .cloned()
             .collect();
 
-        items.sort_by(|a, b| a.name.cmp(&b.name));
+        items.sort_by(|a, b| {
+            let ord = match filter.sort_by.as_str() {
+                "resource" => a.resource.cmp(&b.resource),
+                "action" => a.action.cmp(&b.action),
+                "created_at" => a
+                    .created_at
+                    .timestamp_millis()
+                    .cmp(&b.created_at.timestamp_millis()),
+                "updated_at" => a
+                    .updated_at
+                    .timestamp_millis()
+                    .cmp(&b.updated_at.timestamp_millis()),
+                _ => a.name.cmp(&b.name),
+            };
+            if matches!(filter.sort_order, Some(SortOrder::Desc)) {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
         let total = items.len() as u64;
         let start = usize::try_from(filter.skip).unwrap_or(0);
         let limit = usize::try_from(filter.limit).unwrap_or(100);
@@ -391,10 +516,10 @@ impl PermissionRepository for InMemoryPermissionRepository {
     }
 
     async fn update(&self, permission: &Permission) -> Result<Permission, AppError> {
-        self.permissions
-            .write()
-            .await
-            .insert(permission.id, permission.clone());
+        let mut guard = self.permissions.write().await;
+        if guard.contains_key(&permission.id) {
+            guard.insert(permission.id, permission.clone());
+        }
         Ok(permission.clone())
     }
 
@@ -437,10 +562,14 @@ pub struct InMemoryRefreshTokenRepository {
 #[async_trait]
 impl RefreshTokenRepository for InMemoryRefreshTokenRepository {
     async fn create(&self, token: &RefreshToken) -> Result<(), AppError> {
-        self.tokens
-            .write()
-            .await
-            .insert(token.token_hash.clone(), token.clone());
+        let mut guard = self.tokens.write().await;
+        if guard.contains_key(&token.token_hash) {
+            return Err(AppError::conflict(
+                "DUPLICATE_RESOURCE",
+                "A resource with the provided unique value already exists",
+            ));
+        }
+        guard.insert(token.token_hash.clone(), token.clone());
         Ok(())
     }
 
@@ -655,9 +784,18 @@ impl AuditLogRepository for InMemoryAuditLogRepository {
             .cloned()
             .collect();
 
-        if matches!(filter.sort_order, Some(SortOrder::Desc) | None) {
-            items.reverse();
-        }
+        items.sort_by(|a, b| {
+            let ord = a
+                .created_at
+                .timestamp_millis()
+                .cmp(&b.created_at.timestamp_millis())
+                .then_with(|| a.id.cmp(&b.id));
+            if matches!(filter.sort_order, Some(SortOrder::Desc) | None) {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
 
         let total = items.len() as u64;
         let start = usize::try_from(filter.skip).unwrap_or(0);
@@ -726,13 +864,17 @@ impl AuditLogRepository for InMemoryAuditLogRepository {
             ) {
                 bucket.auth_failed += 1;
             }
-            if matches!(entry.resource_type.as_str(), "user" | "role" | "permission") {
+            if matches!(
+                entry.resource_type.as_str(),
+                "user" | "role" | "permission" | "organisation"
+            ) {
                 bucket.admin_changes += 1;
             }
         }
 
         let mut list: Vec<DailyAuditBucket> = by_day.into_values().collect();
         list.sort_by(|a, b| a.date.cmp(&b.date));
+        list.truncate(31);
         Ok(list)
     }
 
@@ -756,6 +898,228 @@ impl AuditLogRepository for InMemoryAuditLogRepository {
     }
 }
 
+#[derive(Default)]
+pub struct InMemoryOrganisationRepository {
+    organisations: RwLock<HashMap<ObjectId, Organisation>>,
+}
+
+#[async_trait]
+impl OrganisationRepository for InMemoryOrganisationRepository {
+    async fn create(&self, organisation: &Organisation) -> Result<Organisation, AppError> {
+        let mut guard = self.organisations.write().await;
+        if guard
+            .values()
+            .any(|o| o.name.eq_ignore_ascii_case(&organisation.name))
+        {
+            return Err(AppError::conflict(
+                "DUPLICATE_RESOURCE",
+                "A resource with the provided unique value already exists",
+            ));
+        }
+        guard.insert(organisation.id, organisation.clone());
+        Ok(organisation.clone())
+    }
+
+    async fn find_by_id(&self, id: ObjectId) -> Result<Option<Organisation>, AppError> {
+        Ok(self.organisations.read().await.get(&id).cloned())
+    }
+
+    async fn find_by_name(&self, name: &str) -> Result<Option<Organisation>, AppError> {
+        let needle = name.trim();
+        Ok(self
+            .organisations
+            .read()
+            .await
+            .values()
+            .find(|o| o.name.eq_ignore_ascii_case(needle))
+            .cloned())
+    }
+
+    async fn find_by_member_user_id(
+        &self,
+        user_id: ObjectId,
+    ) -> Result<Vec<Organisation>, AppError> {
+        let mut items: Vec<Organisation> = self
+            .organisations
+            .read()
+            .await
+            .values()
+            .filter(|o| o.members.iter().any(|m| m.user_id == user_id))
+            .cloned()
+            .collect();
+        items.sort_by(|a, b| {
+            b.created_at
+                .timestamp_millis()
+                .cmp(&a.created_at.timestamp_millis())
+        });
+        items.truncate(1000);
+        Ok(items)
+    }
+
+    async fn find_all(
+        &self,
+        filter: &OrganisationFilter,
+    ) -> Result<(Vec<Organisation>, u64), AppError> {
+        let guard = self.organisations.read().await;
+        let mut items: Vec<Organisation> = guard
+            .values()
+            .filter(|o| {
+                if let Some(ref search) = filter.search {
+                    let s = search.trim().to_lowercase();
+                    if !s.is_empty() && !o.name.to_lowercase().contains(&s) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
+
+        items.sort_by(|a, b| {
+            let ord = match filter.sort_by.as_str() {
+                "name" => a.name.cmp(&b.name),
+                "updated_at" => a
+                    .updated_at
+                    .timestamp_millis()
+                    .cmp(&b.updated_at.timestamp_millis()),
+                _ => a
+                    .created_at
+                    .timestamp_millis()
+                    .cmp(&b.created_at.timestamp_millis()),
+            };
+            if matches!(filter.sort_order, Some(SortOrder::Desc) | None) {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
+
+        let total = items.len() as u64;
+        let start = usize::try_from(filter.skip).unwrap_or(0);
+        let limit = usize::try_from(filter.limit).unwrap_or(100);
+        let page = items.into_iter().skip(start).take(limit).collect();
+        Ok((page, total))
+    }
+
+    async fn update(&self, organisation: &Organisation) -> Result<Organisation, AppError> {
+        let mut guard = self.organisations.write().await;
+        let Some(existing) = guard.get(&organisation.id) else {
+            return Err(AppError::conflict(
+                "CONCURRENT_MODIFICATION",
+                "Organisation was modified concurrently by another request; please retry",
+            ));
+        };
+        if existing.version != organisation.version {
+            return Err(AppError::conflict(
+                "CONCURRENT_MODIFICATION",
+                "Organisation was modified concurrently by another request; please retry",
+            ));
+        }
+        if guard
+            .values()
+            .any(|o| o.id != organisation.id && o.name.eq_ignore_ascii_case(&organisation.name))
+        {
+            return Err(AppError::conflict(
+                "DUPLICATE_RESOURCE",
+                "A resource with the provided unique value already exists",
+            ));
+        }
+        let mut next = organisation.clone();
+        next.version = existing.version.saturating_add(1);
+        guard.insert(next.id, next.clone());
+        Ok(next)
+    }
+
+    async fn delete(&self, id: ObjectId) -> Result<bool, AppError> {
+        Ok(self.organisations.write().await.remove(&id).is_some())
+    }
+
+    async fn remove_member_from_all_organisations(
+        &self,
+        user_id: ObjectId,
+    ) -> Result<(), AppError> {
+        let mut guard = self.organisations.write().await;
+        let now = BsonDateTime::now();
+        for org in guard.values_mut() {
+            let before = org.members.len();
+            org.members.retain(|m| m.user_id != user_id);
+            if org.members.len() != before {
+                org.updated_at = now;
+                org.version = org.version.saturating_add(1);
+            }
+        }
+        Ok(())
+    }
+
+    async fn count_all(&self) -> Result<u64, AppError> {
+        Ok(self.organisations.read().await.len() as u64)
+    }
+
+    async fn count_created_since(&self, since: BsonDateTime) -> Result<u64, AppError> {
+        let since_ms = since.timestamp_millis();
+        Ok(self
+            .organisations
+            .read()
+            .await
+            .values()
+            .filter(|o| o.created_at.timestamp_millis() >= since_ms)
+            .count() as u64)
+    }
+
+    async fn membership_counts(&self) -> Result<OrganisationMembershipCounts, AppError> {
+        let guard = self.organisations.read().await;
+        let mut counts = OrganisationMembershipCounts::default();
+        for org in guard.values() {
+            for member in &org.members {
+                counts.total += 1;
+                match member.status {
+                    OrganisationMemberStatus::Active => counts.active += 1,
+                    OrganisationMemberStatus::Invited => counts.invited += 1,
+                    OrganisationMemberStatus::Suspended => counts.suspended += 1,
+                }
+            }
+        }
+        Ok(counts)
+    }
+
+    async fn find_largest(&self, limit: u64) -> Result<Vec<Organisation>, AppError> {
+        let mut items: Vec<Organisation> =
+            self.organisations.read().await.values().cloned().collect();
+        items.sort_by(|a, b| {
+            b.members
+                .len()
+                .cmp(&a.members.len())
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        items.truncate(usize::try_from(limit).unwrap_or(8));
+        Ok(items)
+    }
+
+    async fn backfill_missing_owners(&self) -> Result<u64, AppError> {
+        let mut guard = self.organisations.write().await;
+        let mut repaired = 0u64;
+        for org in guard.values_mut() {
+            let has_active_owner = org.members.iter().any(|m| {
+                m.role == OrganisationMemberRole::Owner
+                    && m.status == OrganisationMemberStatus::Active
+            });
+            if !has_active_owner
+                && let Some((idx, _)) = org
+                    .members
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| m.status == OrganisationMemberStatus::Active)
+                    .min_by_key(|(_, m)| m.joined_at.timestamp_millis())
+            {
+                org.members[idx].role = OrganisationMemberRole::Owner;
+                org.updated_at = BsonDateTime::now();
+                repaired += 1;
+            }
+        }
+        Ok(repaired)
+    }
+}
+
 pub async fn create_test_app_state() -> Result<AppState, AppError> {
     let mut settings = Settings::default();
     settings.rate_limit.enabled = false;
@@ -772,6 +1136,8 @@ pub async fn create_test_app_state() -> Result<AppState, AppError> {
         Arc::new(InMemoryPermissionRepository::default());
     let refresh_token_repo: Arc<dyn RefreshTokenRepository> =
         Arc::new(InMemoryRefreshTokenRepository::default());
+    let organisation_repo: Arc<dyn OrganisationRepository> =
+        Arc::new(InMemoryOrganisationRepository::default());
     let audit_repo: Arc<dyn AuditLogRepository> = Arc::new(InMemoryAuditLogRepository::default());
 
     seed_system_rbac(
@@ -790,6 +1156,7 @@ pub async fn create_test_app_state() -> Result<AppState, AppError> {
         role_repo,
         permission_repo,
         refresh_token_repo,
+        organisation_repo,
         audit_repo,
     ))
 }

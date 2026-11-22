@@ -3,14 +3,19 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::{common::validation::validate_password_strength, web::dto::users::UserResponse};
+use crate::{
+    common::validation::{
+        validate_name_trimmed, validate_organisation_name_trimmed, validate_password_strength,
+    },
+    web::dto::{organisations::UserOrganisationSummary, users::UserResponse},
+};
 
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RegisterRequest {
-    #[validate(length(min = 1, max = 80, message = "First name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub first_name: String,
-    #[validate(length(min = 1, max = 80, message = "Last name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub last_name: String,
     #[validate(email(message = "Must be a valid email address"))]
     pub email: String,
@@ -18,6 +23,9 @@ pub struct RegisterRequest {
     pub password: String,
     #[validate(must_match(other = "password", message = "Password confirmation does not match"))]
     pub password_confirmation: String,
+    #[serde(default)]
+    #[validate(custom(function = "validate_organisation_name_trimmed"))]
+    pub organisation_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
@@ -38,6 +46,8 @@ pub struct AuthTokenResponse {
     pub csrf_token: String,
     pub user: UserResponse,
     pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organisation: Option<UserOrganisationSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

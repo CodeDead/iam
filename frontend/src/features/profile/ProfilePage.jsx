@@ -16,8 +16,8 @@ import {
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { IconTrash } from '@tabler/icons-react';
-import { useNavigate } from 'react-router-dom';
+import { IconBuilding, IconTrash } from '@tabler/icons-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { ErrorAlert } from '../../components/common/ErrorAlert';
 import { PageHeader } from '../../components/common/PageHeader';
 import { PermissionGuard } from '../../components/common/PermissionGuard';
@@ -32,7 +32,7 @@ const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,1
 
 export function ProfilePage() {
   const { user, permissions, updateUser, logout, endSession } = useAuth();
-  const { hasAnyPermission } = usePermissions();
+  const { hasPermission, hasAnyPermission } = usePermissions();
   const navigate = useNavigate();
   const [profileError, setProfileError] = useState(null);
   const [passwordError, setPasswordError] = useState(null);
@@ -41,6 +41,7 @@ export function ProfilePage() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const canUpdateProfile = hasPermission('profile.update');
   const canViewAccessSummary = hasAnyPermission(['roles.read', 'permissions.read']);
 
   const profileForm = useForm({
@@ -164,6 +165,7 @@ export function ProfilePage() {
   const handleCloseDeleteModal = () => {
     if (deletingAccount) return;
     setDeleteModalOpen(false);
+    setDeleteError(null);
     deleteForm.reset();
   };
 
@@ -217,57 +219,92 @@ export function ProfilePage() {
                 <TextInput
                   label="First name"
                   required
+                  readOnly={!canUpdateProfile}
                   {...profileForm.getInputProps('first_name')}
                 />
-                <TextInput label="Last name" required {...profileForm.getInputProps('last_name')} />
+                <TextInput
+                  label="Last name"
+                  required
+                  readOnly={!canUpdateProfile}
+                  {...profileForm.getInputProps('last_name')}
+                />
               </Group>
-              <TextInput label="Email address" required {...profileForm.getInputProps('email')} />
+              <TextInput
+                label="Email address"
+                required
+                readOnly={!canUpdateProfile}
+                {...profileForm.getInputProps('email')}
+              />
               <Group grow>
-                <TextInput label="Job title" {...profileForm.getInputProps('job_title')} />
-                <TextInput label="Department" {...profileForm.getInputProps('department')} />
+                <TextInput
+                  label="Job title"
+                  readOnly={!canUpdateProfile}
+                  {...profileForm.getInputProps('job_title')}
+                />
+                <TextInput
+                  label="Department"
+                  readOnly={!canUpdateProfile}
+                  {...profileForm.getInputProps('department')}
+                />
               </Group>
-              <TextInput label="Phone" {...profileForm.getInputProps('phone')} />
-              <Textarea label="Bio" minRows={3} {...profileForm.getInputProps('bio')} />
-              <Group justify="flex-end" mt="sm">
-                <Button type="submit" loading={savingProfile}>
-                  Save changes
-                </Button>
-              </Group>
+              <TextInput
+                label="Phone"
+                readOnly={!canUpdateProfile}
+                {...profileForm.getInputProps('phone')}
+              />
+              <Textarea
+                label="Bio"
+                minRows={3}
+                readOnly={!canUpdateProfile}
+                {...profileForm.getInputProps('bio')}
+              />
+              {canUpdateProfile && (
+                <Group justify="flex-end" mt="sm">
+                  <Button type="submit" loading={savingProfile}>
+                    Save changes
+                  </Button>
+                </Group>
+              )}
             </Stack>
           </form>
         </Card>
 
         <Stack gap="lg">
-          <Card withBorder radius="md" p="lg">
-            <Title order={4} mb="md">
-              Change Password
-            </Title>
-            <ErrorAlert error={passwordError} onClose={() => setPasswordError(null)} />
-            <form onSubmit={passwordForm.onSubmit(handleChangePassword)}>
-              <Stack gap="sm">
-                <PasswordInput
-                  label="Current password"
-                  required
-                  {...passwordForm.getInputProps('current_password')}
-                />
-                <PasswordInput
-                  label="New password"
-                  required
-                  {...passwordForm.getInputProps('new_password')}
-                />
-                <PasswordInput
-                  label="Confirm new password"
-                  required
-                  {...passwordForm.getInputProps('new_password_confirmation')}
-                />
-                <Group justify="flex-end" mt="sm">
-                  <Button type="submit" color="orange" loading={savingPassword}>
-                    Update password
-                  </Button>
-                </Group>
-              </Stack>
-            </form>
-          </Card>
+          <PermissionGuard permission="profile.update">
+            <Card withBorder radius="md" p="lg">
+              <Title order={4} mb="md">
+                Change Password
+              </Title>
+              <ErrorAlert error={passwordError} onClose={() => setPasswordError(null)} />
+              <form onSubmit={passwordForm.onSubmit(handleChangePassword)}>
+                <Stack gap="sm">
+                  <PasswordInput
+                    label="Current password"
+                    autoComplete="current-password"
+                    required
+                    {...passwordForm.getInputProps('current_password')}
+                  />
+                  <PasswordInput
+                    label="New password"
+                    autoComplete="new-password"
+                    required
+                    {...passwordForm.getInputProps('new_password')}
+                  />
+                  <PasswordInput
+                    label="Confirm new password"
+                    autoComplete="new-password"
+                    required
+                    {...passwordForm.getInputProps('new_password_confirmation')}
+                  />
+                  <Group justify="flex-end" mt="sm">
+                    <Button type="submit" color="orange" loading={savingPassword}>
+                      Update password
+                    </Button>
+                  </Group>
+                </Stack>
+              </form>
+            </Card>
+          </PermissionGuard>
 
           <PermissionGuard anyPermissions={['roles.read', 'permissions.read']}>
             <Card withBorder radius="md" p="lg">
@@ -323,12 +360,19 @@ export function ProfilePage() {
                 <Title order={4} c="red">
                   Delete Account
                 </Title>
-                <ErrorAlert error={deleteError} onClose={() => setDeleteError(null)} />
                 <Text size="sm" c="dimmed">
                   Permanently delete your account and revoke all active sessions. This action cannot
                   be undone.
                 </Text>
-                <Group justify="flex-end">
+                <Group justify="space-between" wrap="wrap" gap="xs">
+                  <Button
+                    component={Link}
+                    to="/organisations"
+                    variant="default"
+                    leftSection={<IconBuilding size={16} />}
+                  >
+                    Manage organisations
+                  </Button>
                   <Button
                     color="red"
                     variant="light"
@@ -360,10 +404,16 @@ export function ProfilePage() {
               Are you sure you want to permanently delete <strong>{user?.email}</strong>? All active
               sessions will be revoked immediately and your account cannot be recovered.
             </Text>
+            <Text size="xs" c="dimmed">
+              Any organisations where you are the only active member will also be deleted. If you
+              are the last active owner of a shared organisation, promote another active owner or
+              delete the organisation first.
+            </Text>
             <ErrorAlert error={deleteError} onClose={() => setDeleteError(null)} />
             <PasswordInput
               label="Enter your current password to confirm"
               placeholder="Current password"
+              autoComplete="current-password"
               required
               {...deleteForm.getInputProps('current_password')}
             />

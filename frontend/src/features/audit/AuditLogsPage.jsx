@@ -26,6 +26,7 @@ import { formatDateTime } from '../../utils/formatters';
 
 const RESOURCE_TYPE_OPTIONS = [
   { value: '', label: 'All resources' },
+  { value: 'organisation', label: 'Organisations' },
   { value: 'permission', label: 'Permissions' },
   { value: 'role', label: 'Roles' },
   { value: 'user', label: 'Users' },
@@ -35,6 +36,16 @@ const RESOURCE_TYPE_OPTIONS = [
 
 const ACTION_OPTIONS = [
   { value: '', label: 'All actions' },
+  { value: 'organisation.created', label: 'organisation.created' },
+  { value: 'organisation.updated', label: 'organisation.updated' },
+  { value: 'organisation.deleted', label: 'organisation.deleted' },
+  { value: 'organisation.member_added', label: 'organisation.member_added' },
+  { value: 'organisation.member_updated', label: 'organisation.member_updated' },
+  { value: 'organisation.member_removed', label: 'organisation.member_removed' },
+  { value: 'organisation.invitation_cancelled', label: 'organisation.invitation_cancelled' },
+  { value: 'organisation.invitation_declined', label: 'organisation.invitation_declined' },
+  { value: 'organisation.member_accepted', label: 'organisation.member_accepted' },
+  { value: 'organisation.member_left', label: 'organisation.member_left' },
   { value: 'permission.created', label: 'permission.created' },
   { value: 'permission.updated', label: 'permission.updated' },
   { value: 'permission.deleted', label: 'permission.deleted' },
@@ -61,6 +72,13 @@ function getActionBadgeColor(action = '') {
   if (action.endsWith('deleted') || action.includes('reused') || action.endsWith('_failed')) {
     return 'red';
   }
+  if (
+    action.endsWith('_cancelled') ||
+    action.endsWith('_declined') ||
+    action.endsWith('_removed')
+  ) {
+    return 'orange';
+  }
   if (action.endsWith('.created') || action.endsWith('.registered')) return 'green';
   if (action.endsWith('.login')) return 'teal';
   if (action.endsWith('.logout')) return 'gray';
@@ -81,7 +99,10 @@ export function AuditLogsPage() {
 
   const [selectedEntry, setSelectedEntry] = useState(null);
 
-  const triggerReload = useCallback(() => setReloadTick((n) => n + 1), []);
+  const triggerReload = useCallback(() => {
+    setLoading(true);
+    setReloadTick((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -115,7 +136,12 @@ export function AuditLogsPage() {
         title="Audit Logs"
         description="Inspect security, user, role, and permission activity across CodeDead IAM"
         actions={
-          <Button variant="default" leftSection={<IconRefresh size={16} />} onClick={triggerReload}>
+          <Button
+            variant="default"
+            leftSection={<IconRefresh size={16} />}
+            onClick={triggerReload}
+            loading={loading}
+          >
             Refresh
           </Button>
         }

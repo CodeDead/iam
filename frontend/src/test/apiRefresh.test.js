@@ -119,7 +119,7 @@ describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
   it('rejects non-JSON HTML SPA fallback responses as SERVICE_UNAVAILABLE', async () => {
     const originalAdapter = apiClient.defaults.adapter;
     apiClient.defaults.adapter = async (config) => ({
-      data: '<!doctype html><html><body>SPA fallback</body></html>',
+      data: '<!doctype html><html lang="en"><body>SPA fallback</body></html>',
       status: 200,
       statusText: 'OK',
       headers: { 'content-type': 'text/html' },
@@ -282,6 +282,91 @@ describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
       expect(onExpired).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.BroadcastChannel = originalBC;
+    }
+  });
+
+  it('retries late 401 with an already-rotated access token without triggering another /auth/refresh', async () => {
+    setAuthTokens({ accessToken: 'token-v2', csrfToken: 'csrf-2' });
+    const refreshSpy = vi.spyOn(refreshClient, 'post');
+
+    const originalAdapter = apiClient.defaults.adapter;
+    let attempts = 0;
+    apiClient.defaults.adapter = async (config) => {
+      attempts += 1;
+      if (attempts === 1) {
+        const error = new Error('Unauthorized');
+        error.config = {
+          ...config,
+          headers: { ...config.headers, Authorization: 'Bearer token-v1' },
+        };
+        error.response = { status: 401, data: { error: { code: 'TOKEN_EXPIRED' } } };
+        throw error;
+      }
+      return {
+        data: { success: true, data: { auth: config.headers.Authorization } },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      };
+    };
+
+    try {
+      const res = await apiClient.get('/users');
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(res.data.data.auth).toBe('Bearer token-v2');
+    } finally {
+      apiClient.defaults.adapter = originalAdapter;
+    }
+  });
+
+  it('aborts contended refresh immediately when AUTH_LOGGED_OUT arrived before acquiring lock', async () => {
+    const channels = [];
+    class FakeBroadcastChannel {
+      constructor(name) {
+        this.name = name;
+        this.onmessage = null;
+        channels.push(this);
+      }
+      postMessage(data) {
+        for (const ch of channels) {
+          if (ch !== this && ch.name === this.name && typeof ch.onmessage === 'function') {
+            ch.onmessage({ data });
+          }
+        }
+      }
+      close() {}
+    }
+
+    const originalBC = globalThis.BroadcastChannel;
+    const originalLocks = navigator.locks;
+    globalThis.BroadcastChannel = FakeBroadcastChannel;
+    resetCrossTabSyncState();
+
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: vi.fn(async (_name, optionsOrCb, maybeCb) => {
+          if (typeof optionsOrCb === 'object' && optionsOrCb?.ifAvailable) {
+            return maybeCb(null);
+          }
+          const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
+          const otherTab = new FakeBroadcastChannel('codedead-iam-auth-sync');
+          otherTab.postMessage({ type: 'AUTH_LOGGED_OUT' });
+          return cb({});
+        }),
+      },
+    });
+
+    const refreshSpy = vi.spyOn(refreshClient, 'post');
+    setAuthTokens({ accessToken: 'old-token', csrfToken: 'old-csrf' });
+
+    try {
+      await expect(performTokenRefresh()).rejects.toThrow(/signed out/i);
+      expect(refreshSpy).not.toHaveBeenCalled();
+    } finally {
+      globalThis.BroadcastChannel = originalBC;
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: originalLocks });
     }
   });
 });

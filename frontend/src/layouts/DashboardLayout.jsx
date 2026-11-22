@@ -8,6 +8,7 @@ import {
   Text,
   ThemeIcon,
   Tooltip,
+  UnstyledButton,
   useComputedColorScheme,
   useMantineColorScheme,
 } from '@mantine/core';
@@ -22,11 +23,13 @@ import {
 import { Outlet, useNavigate } from 'react-router-dom';
 import { SidebarNav } from '../components/navigation/SidebarNav';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 import { formatUserName } from '../utils/formatters';
 
 export function DashboardLayout() {
   const [opened, { toggle, close }] = useDisclosure();
   const { user, logout } = useAuth();
+  const { hasPermission } = usePermissions();
   const navigate = useNavigate();
   const { setColorScheme } = useMantineColorScheme();
   const computedColorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
@@ -50,7 +53,13 @@ export function DashboardLayout() {
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group gap="sm">
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Burger
+              opened={opened}
+              onClick={toggle}
+              hiddenFrom="sm"
+              size="sm"
+              aria-label="Toggle navigation menu"
+            />
             <ThemeIcon size="md" radius="md" color="indigo">
               <IconShieldCheck size={18} />
             </ThemeIcon>
@@ -73,24 +82,30 @@ export function DashboardLayout() {
 
             <Menu shadow="md" width={220} position="bottom-end">
               <Menu.Target>
-                <Group gap="xs" style={{ cursor: 'pointer' }}>
-                  <Avatar color="indigo" radius="xl" size="sm">
-                    {initials}
-                  </Avatar>
-                  <Text size="sm" fw={500} visibleFrom="xs">
-                    {fullName || user?.email}
-                  </Text>
-                </Group>
+                <UnstyledButton aria-label="Account menu">
+                  <Group gap="xs">
+                    <Avatar color="indigo" radius="xl" size="sm">
+                      {initials}
+                    </Avatar>
+                    <Text size="sm" fw={500} visibleFrom="xs">
+                      {fullName || user?.email}
+                    </Text>
+                  </Group>
+                </UnstyledButton>
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>{user?.email}</Menu.Label>
-                <Menu.Item
-                  leftSection={<IconUserCircle size={16} />}
-                  onClick={() => navigate('/profile')}
-                >
-                  My Profile
-                </Menu.Item>
-                <Menu.Divider />
+                {hasPermission('profile.read') && (
+                  <>
+                    <Menu.Item
+                      leftSection={<IconUserCircle size={16} />}
+                      onClick={() => navigate('/profile')}
+                    >
+                      My Profile
+                    </Menu.Item>
+                    <Menu.Divider />
+                  </>
+                )}
                 <Menu.Item
                   color="red"
                   leftSection={<IconLogout size={16} />}

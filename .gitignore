@@ -1,6 +1,7 @@
 # Secrets & local environment overrides
 .env
 backend/.env
+backend/config/local.*
 frontend/.env
 *.pem
 *.key

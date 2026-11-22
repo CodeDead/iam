@@ -1,17 +1,29 @@
-import { apiClient, clearAuthTokens, performTokenRefresh, setAuthTokens } from './api';
+import {
+  apiClient,
+  broadcastAuthRefreshed,
+  clearAuthTokens,
+  performTokenRefresh,
+  setAuthTokens,
+} from './api';
 
 export const authService = {
   async register(payload) {
     const response = await apiClient.post('/auth/register', payload);
     const data = response.data.data;
-    setAuthTokens({ accessToken: data.access_token, csrfToken: data.csrf_token });
+    if (data?.access_token) {
+      setAuthTokens({ accessToken: data.access_token, csrfToken: data.csrf_token });
+      broadcastAuthRefreshed(data);
+    }
     return data;
   },
 
   async login(payload) {
     const response = await apiClient.post('/auth/login', payload);
     const data = response.data.data;
-    setAuthTokens({ accessToken: data.access_token, csrfToken: data.csrf_token });
+    if (data?.access_token) {
+      setAuthTokens({ accessToken: data.access_token, csrfToken: data.csrf_token });
+      broadcastAuthRefreshed(data);
+    }
     return data;
   },
 

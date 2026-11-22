@@ -50,6 +50,10 @@ export function PermissionsPage() {
       try {
         const res = await permissionService.list({ page, page_size: 15, search: debouncedSearch });
         if (active) {
+          if (page > 1 && res.total_pages < page) {
+            setPage(Math.max(1, res.total_pages));
+            return;
+          }
           setData(res);
           setError(null);
         }

@@ -64,6 +64,19 @@ pub const SYSTEM_PERMISSIONS: &[(&str, &str, &str)] = &[
         "read",
         "View system audit logs and activity history",
     ),
+    (
+        "organisations",
+        "read",
+        "View organisations and their memberships",
+    ),
+    ("organisations", "create", "Create new organisations"),
+    ("organisations", "update", "Update organisation details"),
+    ("organisations", "delete", "Delete organisations"),
+    (
+        "organisations",
+        "manage_members",
+        "Add, update status, or remove organisation members",
+    ),
 ];
 
 pub async fn seed_system_rbac(
@@ -91,9 +104,19 @@ pub async fn seed_system_rbac(
                 created_at: now,
                 updated_at: now,
             };
-            let created = permission_repo.create(&perm).await?;
-            newly_created_perms.insert(created.id);
-            perm_map.insert(name, created.id);
+            match permission_repo.create(&perm).await {
+                Ok(created) => {
+                    newly_created_perms.insert(created.id);
+                    perm_map.insert(name, created.id);
+                }
+                Err(AppError::Conflict { .. }) => {
+                    // Concurrent multi-replica startup race: re-fetch the winning record.
+                    if let Some(existing) = permission_repo.find_by_name(&name).await? {
+                        perm_map.insert(name, existing.id);
+                    }
+                }
+                Err(err) => return Err(err),
+            }
         }
     }
 
@@ -117,6 +140,11 @@ pub async fn seed_system_rbac(
         "roles.delete",
         "permissions.read",
         "audit_logs.read",
+        "organisations.read",
+        "organisations.create",
+        "organisations.update",
+        "organisations.delete",
+        "organisations.manage_members",
         "profile.read",
         "profile.update",
         "profile.delete",
@@ -127,6 +155,7 @@ pub async fn seed_system_rbac(
         "users.update",
         "roles.read",
         "permissions.read",
+        "organisations.read",
         "profile.read",
         "profile.update",
         "profile.delete",
@@ -187,8 +216,17 @@ pub async fn seed_system_rbac(
                 created_at: now,
                 updated_at: now,
             };
-            let created = role_repo.create(&role).await?;
-            created.id
+            match role_repo.create(&role).await {
+                Ok(created) => created.id,
+                Err(AppError::Conflict { .. }) => role_repo
+                    .find_by_name(name)
+                    .await?
+                    .map(|r| r.id)
+                    .ok_or_else(|| {
+                        AppError::internal(format!("Role '{name}' missing after conflict"))
+                    })?,
+                Err(err) => return Err(err),
+            }
         };
 
         if name == ROLE_SUPER_ADMIN {
@@ -221,8 +259,15 @@ pub async fn seed_system_rbac(
                     updated_at: now,
                     last_login_at: None,
                 };
-                user_repo.create(&admin_user).await?;
-                info!(email = %email, "Bootstrapped initial Super Administrator account");
+                match user_repo.create(&admin_user).await {
+                    Ok(_) => {
+                        info!(email = %email, "Bootstrapped initial Super Administrator account");
+                    }
+                    Err(AppError::Conflict { .. }) => {
+                        info!(email = %email, "Initial Super Administrator account already bootstrapped by another replica");
+                    }
+                    Err(err) => return Err(err),
+                }
             }
         }
     }

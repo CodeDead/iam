@@ -3,15 +3,16 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::{
-    common::validation::validate_password_strength, web::dto::users::UserProfileUpdateDto,
+    common::validation::{validate_name_trimmed, validate_password_strength},
+    web::dto::users::UserProfileUpdateDto,
 };
 
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateProfileRequest {
-    #[validate(length(min = 1, max = 80, message = "First name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub first_name: Option<String>,
-    #[validate(length(min = 1, max = 80, message = "Last name must be 1 to 80 characters"))]
+    #[validate(custom(function = "validate_name_trimmed"))]
     pub last_name: Option<String>,
     #[validate(email(message = "Must be a valid email address"))]
     pub email: Option<String>,

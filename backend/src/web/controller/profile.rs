@@ -89,7 +89,7 @@ pub async fn change_password(
     responses(
         (status = 200, description = "Account permanently deleted", body = ApiResponse<EmptyData>),
         (status = 400, description = "Current password is incorrect"),
-        (status = 409, description = "Cannot delete the last active Super Administrator")
+        (status = 409, description = "Cannot delete the last active Super Administrator or last active owner of a shared organisation")
     )
 )]
 pub async fn delete_account(

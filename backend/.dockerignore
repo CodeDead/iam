@@ -1,0 +1,11 @@
+target/
+.env
+.env.*
+!.env.example
+config/local.*
+tests/
+*.pem
+*.key
+.idea/
+.vscode/
+.DS_Store

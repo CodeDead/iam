@@ -362,10 +362,24 @@ impl RoleService {
         let role = self.find_role_or_not_found(role_id).await?;
         let users = self.user_repo.find_by_role_id(role.id).await?;
 
-        let summary = RoleSummary::from(&role);
+        let all_role_ids: Vec<ObjectId> = users
+            .iter()
+            .flat_map(|u| u.roles.iter().copied())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let all_roles = self.role_repo.find_by_ids(&all_role_ids).await?;
+
         Ok(users
             .into_iter()
-            .map(|u| UserResponse::from_user(u, vec![summary.clone()], None))
+            .map(|u| {
+                let summaries: Vec<RoleSummary> = all_roles
+                    .iter()
+                    .filter(|r| u.roles.contains(&r.id))
+                    .map(RoleSummary::from)
+                    .collect();
+                UserResponse::from_user(u, summaries, None)
+            })
             .collect())
     }
 

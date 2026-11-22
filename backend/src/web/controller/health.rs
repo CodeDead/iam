@@ -3,7 +3,10 @@ use chrono::Utc;
 
 use crate::{
     app::AppState,
-    common::{errors::AppError, responses::ApiResponse},
+    common::{
+        errors::AppError,
+        responses::{ApiResponse, ErrorResponse},
+    },
     web::dto::health::HealthStatus,
 };
 
@@ -32,12 +35,17 @@ pub async fn liveness() -> HttpResponse {
     tag = "Health",
     responses(
         (status = 200, description = "Service and database are ready", body = ApiResponse<HealthStatus>),
-        (status = 500, description = "Database unavailable")
+        (status = 503, description = "Database unavailable", body = ErrorResponse)
     )
 )]
 pub async fn readiness(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    if let Some(ref db) = state.mongodb {
-        db.ping().await?;
+    if let Some(ref db) = state.mongodb
+        && db.ping().await.is_err()
+    {
+        return Err(AppError::service_unavailable(
+            "DATABASE_UNAVAILABLE",
+            "Database readiness check failed",
+        ));
     }
 
     Ok(ApiResponse::ok(

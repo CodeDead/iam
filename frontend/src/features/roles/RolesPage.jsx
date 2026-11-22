@@ -51,6 +51,10 @@ export function RolesPage() {
       try {
         const data = await roleService.list({ page, page_size: 10, search: debouncedSearch });
         if (active) {
+          if (page > 1 && data.total_pages < page) {
+            setPage(Math.max(1, data.total_pages));
+            return;
+          }
           setRolesData(data);
           setError(null);
         }
@@ -73,7 +77,9 @@ export function RolesPage() {
       .then((res) => {
         if (active) setAllPermissions(res.items || []);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (active) setError(extractApiError(err, 'Failed to load permissions catalog'));
+      });
     return () => {
       active = false;
     };
@@ -247,6 +253,7 @@ export function RolesPage() {
         onClose={() => setFormOpen(false)}
         role={editingRole}
         allPermissions={allPermissions}
+        onPartialSaved={triggerReload}
         onSaved={() => {
           setFormOpen(false);
           triggerReload();

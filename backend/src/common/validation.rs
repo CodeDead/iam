@@ -30,7 +30,8 @@ pub fn validate_dto<T: Validate>(dto: &T) -> Result<(), AppError> {
 }
 
 pub fn validate_password_strength(password: &str) -> Result<(), ValidationError> {
-    if password.len() < 8 || password.len() > 128 {
+    let char_count = password.chars().count();
+    if !(8..=128).contains(&char_count) {
         let mut err = ValidationError::new("password_length");
         err.message = Some("Password must be between 8 and 128 characters".into());
         return Err(err);
@@ -51,6 +52,46 @@ pub fn validate_password_strength(password: &str) -> Result<(), ValidationError>
         return Err(err);
     }
 
+    Ok(())
+}
+
+pub fn validate_name_trimmed(value: &str) -> Result<(), ValidationError> {
+    let count = value.trim().chars().count();
+    if !(1..=80).contains(&count) {
+        let mut err = ValidationError::new("trimmed_length");
+        err.message = Some("Must be 1 to 80 non-whitespace characters".into());
+        return Err(err);
+    }
+    Ok(())
+}
+
+pub fn validate_role_name_trimmed(value: &str) -> Result<(), ValidationError> {
+    let count = value.trim().chars().count();
+    if !(2..=80).contains(&count) {
+        let mut err = ValidationError::new("trimmed_length");
+        err.message = Some("Role name must be 2 to 80 characters".into());
+        return Err(err);
+    }
+    Ok(())
+}
+
+pub fn validate_organisation_name_trimmed(value: &str) -> Result<(), ValidationError> {
+    let count = value.trim().chars().count();
+    if !(2..=120).contains(&count) {
+        let mut err = ValidationError::new("trimmed_length");
+        err.message = Some("Organisation name must be 2 to 120 characters".into());
+        return Err(err);
+    }
+    Ok(())
+}
+
+pub fn validate_description_trimmed(value: &str) -> Result<(), ValidationError> {
+    let count = value.trim().chars().count();
+    if !(1..=255).contains(&count) {
+        let mut err = ValidationError::new("trimmed_length");
+        err.message = Some("Description must be 1 to 255 characters".into());
+        return Err(err);
+    }
     Ok(())
 }
 

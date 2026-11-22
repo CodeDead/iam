@@ -32,6 +32,9 @@ pub enum AppError {
     #[error("{message}")]
     TooManyRequests { message: String },
 
+    #[error("{message}")]
+    ServiceUnavailable { code: String, message: String },
+
     #[error("Internal server error: {0}")]
     Internal(String),
 }
@@ -85,6 +88,13 @@ impl AppError {
         }
     }
 
+    pub fn service_unavailable(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::ServiceUnavailable {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
     pub fn internal(context: impl Into<String>) -> Self {
         Self::Internal(context.into())
     }
@@ -95,7 +105,8 @@ impl AppError {
             | Self::Unauthorized { code, .. }
             | Self::Forbidden { code, .. }
             | Self::NotFound { code, .. }
-            | Self::Conflict { code, .. } => code.as_str(),
+            | Self::Conflict { code, .. }
+            | Self::ServiceUnavailable { code, .. } => code.as_str(),
             Self::Validation { .. } => "VALIDATION_ERROR",
             Self::TooManyRequests { .. } => "TOO_MANY_REQUESTS",
             Self::Internal(_) => "INTERNAL_SERVER_ERROR",
@@ -113,6 +124,7 @@ impl ResponseError for AppError {
             Self::Conflict { .. } => StatusCode::CONFLICT,
             Self::Validation { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
+            Self::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -125,7 +137,8 @@ impl ResponseError for AppError {
             | Self::Unauthorized { code, message }
             | Self::Forbidden { code, message }
             | Self::NotFound { code, message }
-            | Self::Conflict { code, message } => (code.clone(), message.clone(), None),
+            | Self::Conflict { code, message }
+            | Self::ServiceUnavailable { code, message } => (code.clone(), message.clone(), None),
             Self::Validation { message, details } => (
                 "VALIDATION_ERROR".to_string(),
                 message.clone(),
@@ -159,11 +172,17 @@ impl ResponseError for AppError {
 
 impl From<mongodb::error::Error> for AppError {
     fn from(err: mongodb::error::Error) -> Self {
-        if let mongodb::error::ErrorKind::Write(mongodb::error::WriteFailure::WriteError(
-            ref write_err,
-        )) = *err.kind
-            && write_err.code == 11000
-        {
+        let is_duplicate_key = match *err.kind {
+            mongodb::error::ErrorKind::Write(mongodb::error::WriteFailure::WriteError(
+                ref write_err,
+            )) => write_err.code == 11000,
+            mongodb::error::ErrorKind::Command(ref cmd_err) => cmd_err.code == 11000,
+            mongodb::error::ErrorKind::BulkWrite(ref bulk_err) => {
+                bulk_err.write_errors.values().any(|e| e.code == 11000)
+            }
+            _ => false,
+        };
+        if is_duplicate_key {
             return Self::conflict(
                 "DUPLICATE_RESOURCE",
                 "A resource with the provided unique value already exists",
