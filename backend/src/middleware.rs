@@ -9,5 +9,5 @@ pub use authorization::{
     PermissionCache, RequirePermission, require_all_permissions, require_permission,
 };
 pub use csrf::validate_csrf_double_submit;
-pub use rate_limit::RateLimitMiddleware;
+pub use rate_limit::{RateLimitMiddleware, extract_client_ip};
 pub use request_id::RequestIdAndSecurityHeaders;

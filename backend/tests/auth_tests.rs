@@ -6,9 +6,10 @@ use mongodb::bson::oid::ObjectId;
 use serde_json::{Value, json};
 
 use auth_backend::{
-    app::configure_app_services, database::mongodb::chrono_to_bson_dt,
-    middleware::RequestIdAndSecurityHeaders, repository::auth::dao::refresh_token::RefreshToken,
-    security::csrf::sha256_hex, test_support::create_test_app_state,
+    app::configure_app_services, common::pagination::PaginationParams,
+    database::mongodb::chrono_to_bson_dt, middleware::RequestIdAndSecurityHeaders,
+    repository::auth::dao::refresh_token::RefreshToken, security::csrf::sha256_hex,
+    test_support::create_test_app_state,
 };
 
 fn extract_cookie(resp: &actix_web::dev::ServiceResponse, name: &str) -> Option<String> {
@@ -275,4 +276,165 @@ async fn health_and_openapi_endpoints_work() {
     let doc: Value = test::read_body_json(openapi_resp).await;
     assert_eq!(doc["info"]["version"], "1.0.0");
     assert!(doc["paths"].get("/api/v1/users").is_some());
+}
+
+#[actix_web::test]
+async fn production_hides_swagger_failed_logins_are_audited_and_api_rate_limit_applies() {
+    // Verify pagination skip never overflows for extreme page values
+    let extreme_page = PaginationParams {
+        page: Some(u64::MAX),
+        page_size: Some(u64::MAX),
+        sort_by: None,
+        sort_order: None,
+    };
+    assert!(extreme_page.skip() <= 10_000_000);
+
+    // 1. Production mode disables OpenAPI / Swagger UI by default and enforces API rate limit
+    let mut state = create_test_app_state().await.unwrap();
+    let mut prod_settings = (*state.settings).clone();
+    prod_settings.app.environment = "production".to_string();
+    prod_settings.app.enable_swagger_ui = None;
+    prod_settings.rate_limit.enabled = true;
+    prod_settings.rate_limit.api_requests_per_minute = 3;
+    prod_settings.rate_limit.auth_requests_per_minute = 10;
+    state.settings = std::sync::Arc::new(prod_settings);
+
+    let app = test::init_service(
+        App::new().configure(|cfg| configure_app_services(cfg, web::Data::new(state.clone()))),
+    )
+    .await;
+
+    let openapi_prod = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/openapi.json")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(openapi_prod.status(), StatusCode::NOT_FOUND);
+
+    // 2. Failed login with unknown email & wrong password both return 401 and record auth.login_failed
+    let unknown_login = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(json!({
+                "email": "ghost@test.local",
+                "password": "WrongPassword123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(unknown_login.status(), StatusCode::UNAUTHORIZED);
+
+    let wrong_pw_login = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "WrongPassword123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(wrong_pw_login.status(), StatusCode::UNAUTHORIZED);
+
+    // 3. 4th request to /api/v1 within 1 minute hits API rate limit (429 TOO_MANY_REQUESTS)
+    let rate_limited = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/api/v1/users").to_request(),
+    )
+    .await;
+    assert_eq!(rate_limited.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Verify both failed login attempts were persisted in audit_logs
+    let (entries, total) = state
+        .audit_repo
+        .find_all(
+            &auth_backend::repository::audit::audit_log_repository::AuditLogFilter {
+                action: Some("auth.login_failed".to_string()),
+                limit: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(total, 2);
+    assert_eq!(entries.len(), 2);
+}
+
+#[actix_web::test]
+async fn cf_connecting_ip_isolates_rate_limit_buckets_behind_cloudflared_and_traefik() {
+    let mut state = create_test_app_state().await.unwrap();
+    let mut settings = (*state.settings).clone();
+    settings.rate_limit.enabled = true;
+    settings.rate_limit.trust_proxy_headers = true;
+    settings.rate_limit.api_requests_per_minute = 2;
+    settings.rate_limit.auth_requests_per_minute = 10;
+    state.settings = std::sync::Arc::new(settings);
+
+    let app = test::init_service(
+        App::new().configure(|cfg| configure_app_services(cfg, web::Data::new(state.clone()))),
+    )
+    .await;
+
+    // Visitor A makes 2 requests behind the same Traefik/cloudflared X-Forwarded-For IP (10.0.3.13)
+    for _ in 0..2 {
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/v1/users")
+                .insert_header(("X-Forwarded-For", "10.0.3.13"))
+                .insert_header(("CF-Connecting-IP", "203.0.113.10"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // Visitor A's 3rd request is rate limited (429)
+    let visitor_a_limited = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/users")
+            .insert_header(("X-Forwarded-For", "10.0.3.13"))
+            .insert_header(("CF-Connecting-IP", "203.0.113.10"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(visitor_a_limited.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Visitor B (different CF-Connecting-IP, same internal X-Forwarded-For) is NOT affected
+    let visitor_b_ok = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("X-Forwarded-For", "10.0.3.13"))
+            .insert_header(("CF-Connecting-IP", "198.51.100.25"))
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(visitor_b_ok.status(), StatusCode::OK);
+
+    // Verify audit log recorded Visitor B's real CF-Connecting-IP, not 10.0.3.13
+    let (entries, _) = state
+        .audit_repo
+        .find_all(
+            &auth_backend::repository::audit::audit_log_repository::AuditLogFilter {
+                action: Some("auth.login".to_string()),
+                limit: 5,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        entries[0].details.as_ref().unwrap()["ip_address"],
+        "198.51.100.25"
+    );
 }

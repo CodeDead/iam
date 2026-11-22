@@ -46,6 +46,12 @@ services:
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-20}
       RATE_LIMIT_API_PER_MINUTE: ${RATE_LIMIT_API_PER_MINUTE:-300}
+      # Trust CF-Connecting-IP / X-Forwarded-For headers from Cloudflare Tunnel + Traefik.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+      # OpenAPI / Swagger UI is disabled by default in production.
+      ENABLE_SWAGGER_UI: ${ENABLE_SWAGGER_UI:-false}
+      # Automatically expire audit_logs older than N days (0 disables TTL).
+      AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS:-90}
       # Set to "0" if scaling backend replicas > 1 so permission revocations propagate immediately.
       PERMISSION_CACHE_TTL_SECONDS: ${PERMISSION_CACHE_TTL_SECONDS:-30}
       # Remove BOOTSTRAP_SUPER_ADMIN_PASSWORD after initial login and password rotation.
@@ -91,7 +97,7 @@ services:
     networks:
       - proxy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -118,7 +124,7 @@ services:
         - traefik.http.routers.codedead-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
         - traefik.http.routers.codedead-ui.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
         - traefik.http.routers.codedead-ui.priority=10
-        - traefik.http.services.codedead-ui.loadbalancer.server.port=80
+        - traefik.http.services.codedead-ui.loadbalancer.server.port=8080
 
 secrets:
   codedead_jwt_private_pem:

@@ -10,11 +10,19 @@ const ROUTE_PERMISSIONS = {
   '/users': 'users.read',
   '/roles': 'roles.read',
   '/permissions': 'permissions.read',
+  '/audit-logs': 'audit_logs.read',
   '/profile': 'profile.read',
 };
 
 function resolvePostLoginRedirect(fromPath, permissions = []) {
-  if (!fromPath || fromPath === '/login' || fromPath === '/register' || fromPath === '/forbidden') {
+  if (
+    !fromPath ||
+    !fromPath.startsWith('/') ||
+    fromPath.startsWith('//') ||
+    fromPath === '/login' ||
+    fromPath === '/register' ||
+    fromPath === '/forbidden'
+  ) {
     return '/';
   }
   const required = Object.entries(ROUTE_PERMISSIONS).find(([prefix]) =>

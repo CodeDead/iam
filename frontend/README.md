@@ -13,7 +13,7 @@ Administration web application for **CodeDead IAM**, built with **React 19**, **
 - `src/features/` — Feature pages and modals for `audit`, `auth`, `dashboard`, `profile` (personal details, password change, and password-confirmed self-service account deletion), `users`, `roles`, and `permissions`.
 - `src/utils/` — `errors.js` (normalizes wrapped, unwrapped, and stringified API errors as well as timeout/gateway/offline failures for inline `ErrorAlert` banners and error notifications), `cookies.js`, and `formatters.js`.
 - `src/test/` — Vitest 5 + React Testing Library test suites.
-- `nginx.conf` — Production Nginx configuration with security headers, `/healthz` probe, `/api/` HTTP `503` JSON fallback (preventing `200 OK` HTML responses when the backend is offline), and SPA history fallback.
+- `nginx.conf` & `security-headers.inc` — Non-root unprivileged Nginx configuration (port `8080`) with tightened CSP (`frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`, `object-src 'none'`), `Permissions-Policy`, consistent security headers across all locations, `/healthz` probe, `/api/` HTTP `503` JSON fallback (preventing `200 OK` HTML responses when the backend is offline), and SPA history fallback.
 
 ## Quick Start
 

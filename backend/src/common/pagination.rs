@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 pub const DEFAULT_PAGE: u64 = 1;
+pub const MAX_PAGE: u64 = 100_000;
 pub const DEFAULT_PAGE_SIZE: u64 = 20;
 pub const MAX_PAGE_SIZE: u64 = 100;
 
@@ -31,7 +32,7 @@ pub struct PaginationParams {
 
 impl PaginationParams {
     pub fn normalized_page(&self) -> u64 {
-        self.page.unwrap_or(DEFAULT_PAGE).max(1)
+        self.page.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE)
     }
 
     pub fn normalized_page_size(&self) -> u64 {
@@ -41,7 +42,9 @@ impl PaginationParams {
     }
 
     pub fn skip(&self) -> u64 {
-        (self.normalized_page().saturating_sub(1)) * self.normalized_page_size()
+        self.normalized_page()
+            .saturating_sub(1)
+            .saturating_mul(self.normalized_page_size())
     }
 
     pub fn sort_order_or_default(&self) -> SortOrder {

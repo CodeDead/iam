@@ -131,7 +131,8 @@ impl AppState {
 
     pub async fn from_mongodb(settings: Settings) -> Result<Self, AppError> {
         let settings = Arc::new(settings);
-        let mongo = MongoDb::connect(&settings.mongodb).await?;
+        let mongo =
+            MongoDb::connect(&settings.mongodb, settings.app.audit_log_retention_days).await?;
         let keys = JwtKeyPair::from_settings(&settings)?;
         let jwt_service = Arc::new(JwtService::new(keys, &settings.jwt));
 
@@ -193,7 +194,7 @@ pub fn build_cors(settings: &Settings) -> Cors {
 }
 
 pub fn configure_app_services(cfg: &mut web::ServiceConfig, state: web::Data<AppState>) {
-    let rate_limit = state.settings.rate_limit.clone();
+    let settings = Arc::clone(&state.settings);
 
     cfg.app_data(state)
         .app_data(
@@ -208,5 +209,5 @@ pub fn configure_app_services(cfg: &mut web::ServiceConfig, state: web::Data<App
             let message = format!("Invalid query parameters: {err}");
             AppError::bad_request("INVALID_QUERY_PARAMETERS", message).into()
         }))
-        .configure(|sc| configure_routes(sc, &rate_limit));
+        .configure(|sc| configure_routes(sc, &settings));
 }

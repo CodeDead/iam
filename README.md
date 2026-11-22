@@ -102,6 +102,7 @@ The repository contains two independently structured projects communicating excl
     ├── package-lock.json
     ├── Dockerfile
     ├── nginx.conf
+    ├── security-headers.inc
     ├── vite.config.js
     ├── postcss.config.cjs
     ├── eslint.config.js
@@ -134,7 +135,7 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 | `roles` | `_id`, `name`, `description`, `permissions: [ObjectId]`, `is_system`, `created_at`, `updated_at` | Unique `name` (`role_name_unique`), `permissions` (`permissions_idx`), `is_system` (`is_system_idx`) |
 | `permissions` | `_id`, `name` (`resource.action`), `resource`, `action`, `description`, `is_system`, `created_at`, `updated_at` | Unique `name` (`permission_name_unique`), compound unique `(resource, action)` (`resource_action_unique`), `is_system` (`perm_is_system_idx`) |
 | `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), TTL on `expires_at` (`expires_at_ttl`) |
-| `audit_logs` | `_id`, `action`, `resource_type`, `resource_id`, `resource_name`, `actor_id`, `actor_email`, `summary`, `details`, `created_at` | `created_at` (`audit_created_at_desc`), `(action, created_at)` (`audit_action_created_at`), `(resource_type, created_at)` (`audit_resource_type_created_at`), `(actor_id, created_at)` (`audit_actor_id_created_at`) |
+| `audit_logs` | `_id`, `action`, `resource_type`, `resource_id`, `resource_name`, `actor_id`, `actor_email`, `summary`, `details`, `created_at` | `created_at` (`audit_created_at_desc`), TTL on `created_at` (`audit_created_at_ttl`, configurable via `AUDIT_LOG_RETENTION_DAYS`), `(action, created_at)` (`audit_action_created_at`), `(resource_type, created_at)` (`audit_resource_type_created_at`), `(actor_id, created_at)` (`audit_actor_id_created_at`) |
 
 - **Relationships**: Users reference multiple `roles` by `ObjectId`; roles reference multiple `permissions` by `ObjectId`. Effective permissions are computed dynamically as the union of permissions across all assigned roles.
 - **Seeded System Roles**: `Super Administrator`, `Administrator`, `Moderator`, `User`.
@@ -146,8 +147,8 @@ See [backend/migrations/README.md](backend/migrations/README.md) for indexing an
 
 ## 4. Authentication, JWT Lifecycle & RBAC Security
 
-1. **Password Security**: Argon2id (`argon2 0.6`, `Algorithm::Argon2id`, `V0x13`, 19 MiB, 2 iterations) executed off the Actix event loop via `tokio::task::spawn_blocking`.
-2. **Access JWTs**: Asymmetric **EdDSA (Ed25519)** signed tokens (`jsonwebtoken 12`, `ed25519-dalek 3`, default 15m TTL) validating signature, `iss`, `aud`, `exp`, `nbf`, `token_type == "access"`, and `tv` (user `token_version`). Permissions are **never** trusted blindly from JWT claims; they are resolved via a short-TTL `PermissionCache` explicitly invalidated immediately upon any user role, role permission, or permission mutation.
+1. **Password Security & Timing Protection**: Argon2id (`argon2 0.6`, `Algorithm::Argon2id`, `V0x13`, 19 MiB, 2 iterations) executed off the Actix event loop via `tokio::task::spawn_blocking`. Unknown-email logins execute a dummy Argon2id verification to prevent timing-based user enumeration, and all failed login attempts are recorded as `auth.login_failed` audit events.
+2. **Access JWTs**: Asymmetric **EdDSA (Ed25519)** signed tokens (`jsonwebtoken 12`, `ed25519-dalek 3`, default 15m TTL) validating signature, `iss`, `aud`, `exp`, `nbf`, `token_type == "access"`, and `tv` (user `token_version`, incremented immediately upon role changes, account deactivation, or password changes). Permissions are **never** trusted blindly from JWT claims; they are resolved via a short-TTL `PermissionCache` explicitly invalidated immediately upon any user role, role permission, or permission mutation.
 3. **Refresh Token Rotation & Reuse Detection**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB, transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production). Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions when connected to a replica set). Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately.
 4. **CSRF Protection**: Double-submit cookie pattern (`csrf_token` cookie + `X-CSRF-Token` header verified with constant-time comparison via `subtle`).
 5. **Privilege Escalation Defenses** (enforced in both HTTP middleware and services):
@@ -161,7 +162,7 @@ See [backend/migrations/README.md](backend/migrations/README.md) for indexing an
 
 ## 5. REST API Reference (`/api/v1`)
 
-Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`) is available at:
+Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`) is enabled by default in development and disabled by default in production (`ENABLE_SWAGGER_UI`):
 - `GET /swagger-ui/`
 - `GET /api/v1/openapi.json`
 
@@ -264,7 +265,10 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 | `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(empty in dev)* | Ed25519 PKCS#8/SPKI PEM key paths (mandatory in production) |
 | `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist (wildcards forbidden) |
 | `COOKIE_SECURE` / `COOKIE_SAME_SITE` / `COOKIE_DOMAIN` | `false` / `Lax` / *(empty)* | Refresh & CSRF cookie attributes |
-| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_API_PER_MINUTE` | `true` / `30` / `300` | Per-IP rate limiting thresholds |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_API_PER_MINUTE` | `true` / `30` / `300` | Per-IP rate limiting thresholds (bounded memory with stale bucket eviction; applies to both `/api/v1` and stricter `/api/v1/auth`) |
+| `TRUST_PROXY_HEADERS` | `false` | When `true`, rate limiting and audit logs prefer Cloudflare's `CF-Connecting-IP` header, falling back to `X-Forwarded-For` / `X-Real-IP`; when `false`, uses only the direct socket peer IP |
+| `ENABLE_SWAGGER_UI` | `true` (dev) / `false` (prod) | Controls whether `/swagger-ui/` and `/api/v1/openapi.json` are exposed (disabled by default in production) |
+| `AUDIT_LOG_RETENTION_DAYS` | `90` | MongoDB TTL index retention period in days for `audit_logs` (`0` disables automatic expiration) |
 | `PERMISSION_CACHE_TTL_SECONDS` | `30` | In-memory RBAC cache TTL in seconds (`0` disables caching for multi-replica deployments) |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | When `true`, newly registered accounts start in `pending_verification` status |
 | `BOOTSTRAP_SUPER_ADMIN_EMAIL` / `BOOTSTRAP_SUPER_ADMIN_PASSWORD` | `admin@example.com` / *(empty)* | Optional initial Super Administrator bootstrap |

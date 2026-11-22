@@ -12,7 +12,7 @@ use crate::{
         responses::{ApiResponse, EmptyData},
     },
     config::settings::CookieSettings,
-    middleware::{AuthenticatedUser, validate_csrf_double_submit},
+    middleware::{AuthenticatedUser, extract_client_ip, validate_csrf_double_submit},
     web::dto::auth::{AuthTokenResponse, LoginRequest, MeResponse, RegisterRequest},
 };
 
@@ -32,7 +32,7 @@ pub async fn register(
     state: web::Data<AppState>,
     body: web::Json<RegisterRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let (user_agent, ip) = extract_client_meta(&req);
+    let (user_agent, ip) = extract_client_meta(&req, state.settings.rate_limit.trust_proxy_headers);
     let session = state
         .auth_service
         .register(body.into_inner(), user_agent, ip)
@@ -70,7 +70,7 @@ pub async fn login(
     state: web::Data<AppState>,
     body: web::Json<LoginRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let (user_agent, ip) = extract_client_meta(&req);
+    let (user_agent, ip) = extract_client_meta(&req, state.settings.rate_limit.trust_proxy_headers);
     let session = state
         .auth_service
         .login(body.into_inner(), user_agent, ip)
@@ -115,7 +115,7 @@ pub async fn refresh(
 
     validate_csrf_double_submit(&req, &state.settings.cookie)?;
 
-    let (user_agent, ip) = extract_client_meta(&req);
+    let (user_agent, ip) = extract_client_meta(&req, state.settings.rate_limit.trust_proxy_headers);
     let session = state
         .auth_service
         .refresh(&raw_refresh, user_agent, ip)
@@ -194,16 +194,16 @@ pub async fn me(
     ))
 }
 
-fn extract_client_meta(req: &HttpRequest) -> (Option<String>, Option<String>) {
+fn extract_client_meta(
+    req: &HttpRequest,
+    trust_proxy_headers: bool,
+) -> (Option<String>, Option<String>) {
     let user_agent = req
         .headers()
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.chars().take(256).collect());
-    let ip = req
-        .connection_info()
-        .realip_remote_addr()
-        .map(ToString::to_string);
+    let ip = extract_client_ip(req, trust_proxy_headers);
     (user_agent, ip)
 }
 

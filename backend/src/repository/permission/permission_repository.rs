@@ -137,9 +137,11 @@ impl PermissionRepository for MongoPermissionRepository {
     }
 }
 
+const MAX_SEARCH_CHARS: usize = 200;
+
 pub fn regex_escape(input: &str) -> String {
-    let mut out = String::with_capacity(input.len() + 8);
-    for ch in input.chars() {
+    let mut out = String::with_capacity(input.len().min(MAX_SEARCH_CHARS) + 8);
+    for ch in input.chars().take(MAX_SEARCH_CHARS) {
         if matches!(
             ch,
             '\\' | '.' | '+' | '*' | '?' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|'
