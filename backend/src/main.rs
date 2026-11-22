@@ -31,7 +31,14 @@ async fn main() -> std::io::Result<()> {
     };
 
     let shared_state = web::Data::new(state);
-    info!(address = %bind_addr, "Starting HTTP server");
+    info!(
+        address = %bind_addr,
+        environment = %shared_state.settings.app.environment,
+        trust_proxy_headers = shared_state.settings.rate_limit.trust_proxy_headers,
+        rate_limit_enabled = shared_state.settings.rate_limit.enabled,
+        swagger_enabled = shared_state.settings.is_swagger_enabled(),
+        "Starting HTTP server"
+    );
 
     HttpServer::new(move || {
         let cors = build_cors(&shared_state.settings);

@@ -210,27 +210,35 @@ impl Settings {
     }
 }
 
+fn parse_bool_env(val: &str) -> Option<bool> {
+    match val.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" => Some(true),
+        "false" | "0" | "no" => Some(false),
+        _ => None,
+    }
+}
+
 fn apply_env_overrides(settings: &mut Settings) {
     if let Ok(val) = env::var("APP_ENV") {
-        settings.app.environment = val;
+        settings.app.environment = val.trim().to_string();
     }
     if let Ok(val) = env::var("REQUIRE_EMAIL_VERIFICATION")
-        && let Ok(parsed) = val.parse::<bool>()
+        && let Some(parsed) = parse_bool_env(&val)
     {
         settings.app.require_email_verification = parsed;
     }
     if let Ok(val) = env::var("PERMISSION_CACHE_TTL_SECONDS")
-        && let Ok(parsed) = val.parse::<u64>()
+        && let Ok(parsed) = val.trim().parse::<u64>()
     {
         settings.app.permission_cache_ttl_seconds = parsed;
     }
     if let Ok(val) = env::var("ENABLE_SWAGGER_UI")
-        && let Ok(parsed) = val.parse::<bool>()
+        && let Some(parsed) = parse_bool_env(&val)
     {
         settings.app.enable_swagger_ui = Some(parsed);
     }
     if let Ok(val) = env::var("AUDIT_LOG_RETENTION_DAYS")
-        && let Ok(parsed) = val.parse::<u64>()
+        && let Ok(parsed) = val.trim().parse::<u64>()
     {
         settings.app.audit_log_retention_days = parsed;
     }
@@ -294,34 +302,34 @@ fn apply_env_overrides(settings: &mut Settings) {
     }
 
     if let Ok(val) = env::var("COOKIE_SECURE")
-        && let Ok(parsed) = val.parse::<bool>()
+        && let Some(parsed) = parse_bool_env(&val)
     {
         settings.cookie.secure = parsed;
     }
     if let Ok(val) = env::var("COOKIE_SAME_SITE") {
-        settings.cookie.same_site = val;
+        settings.cookie.same_site = val.trim().to_string();
     }
     if let Ok(val) = env::var("COOKIE_DOMAIN") {
-        settings.cookie.domain = val;
+        settings.cookie.domain = val.trim().to_string();
     }
 
     if let Ok(val) = env::var("RATE_LIMIT_ENABLED")
-        && let Ok(parsed) = val.parse::<bool>()
+        && let Some(parsed) = parse_bool_env(&val)
     {
         settings.rate_limit.enabled = parsed;
     }
     if let Ok(val) = env::var("RATE_LIMIT_AUTH_PER_MINUTE")
-        && let Ok(parsed) = val.parse::<u32>()
+        && let Ok(parsed) = val.trim().parse::<u32>()
     {
         settings.rate_limit.auth_requests_per_minute = parsed;
     }
     if let Ok(val) = env::var("RATE_LIMIT_API_PER_MINUTE")
-        && let Ok(parsed) = val.parse::<u32>()
+        && let Ok(parsed) = val.trim().parse::<u32>()
     {
         settings.rate_limit.api_requests_per_minute = parsed;
     }
     if let Ok(val) = env::var("TRUST_PROXY_HEADERS")
-        && let Ok(parsed) = val.parse::<bool>()
+        && let Some(parsed) = parse_bool_env(&val)
     {
         settings.rate_limit.trust_proxy_headers = parsed;
     }
