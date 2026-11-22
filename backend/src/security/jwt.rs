@@ -114,6 +114,7 @@ mod tests {
             audience: "test-audience".to_string(),
             access_token_ttl: ttl,
             refresh_token_ttl: 3600,
+            revoked_token_retention_seconds: 3600,
             private_key_path: String::new(),
             public_key_path: String::new(),
         };

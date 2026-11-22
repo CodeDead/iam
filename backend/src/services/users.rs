@@ -364,7 +364,7 @@ impl UserService {
         }
 
         self.refresh_token_repo
-            .revoke_all_for_user(target_id)
+            .delete_all_for_user(target_id)
             .await?;
         self.permission_cache.invalidate_user(target_id).await;
         self.user_repo.delete(target_id).await?;

@@ -1,7 +1,9 @@
 use async_trait::async_trait;
+use futures_util::TryStreamExt;
 use mongodb::{
     Client, Collection, Database,
     bson::{DateTime as BsonDateTime, doc, oid::ObjectId},
+    options::FindOptions,
 };
 use tracing::warn;
 
@@ -21,6 +23,14 @@ pub trait RefreshTokenRepository: Send + Sync {
     async fn revoke_by_hash(&self, token_hash: &str) -> Result<(), AppError>;
     async fn revoke_family(&self, family_id: &str) -> Result<(), AppError>;
     async fn revoke_all_for_user(&self, user_id: ObjectId) -> Result<(), AppError>;
+    async fn prune_revoked_in_family(
+        &self,
+        family_id: &str,
+        keep_latest: usize,
+    ) -> Result<(), AppError>;
+    async fn delete_family(&self, family_id: &str) -> Result<(), AppError>;
+    async fn delete_all_for_user(&self, user_id: ObjectId) -> Result<(), AppError>;
+    async fn count_for_family(&self, family_id: &str) -> Result<u64, AppError>;
 }
 
 pub struct MongoRefreshTokenRepository {
@@ -149,5 +159,58 @@ impl RefreshTokenRepository for MongoRefreshTokenRepository {
             )
             .await?;
         Ok(())
+    }
+
+    async fn prune_revoked_in_family(
+        &self,
+        family_id: &str,
+        keep_latest: usize,
+    ) -> Result<(), AppError> {
+        let skip = u64::try_from(keep_latest).unwrap_or(5);
+        let options = FindOptions::builder()
+            .sort(doc! { "revoked_at": -1, "_id": -1 })
+            .skip(skip)
+            .build();
+
+        let cursor = self
+            .collection
+            .find(doc! { "family_id": family_id, "revoked_at": { "$ne": null } })
+            .with_options(options)
+            .await?;
+
+        let stale_ids: Vec<ObjectId> = cursor
+            .try_collect::<Vec<RefreshToken>>()
+            .await?
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+
+        if !stale_ids.is_empty() {
+            self.collection
+                .delete_many(doc! { "_id": { "$in": stale_ids } })
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn delete_family(&self, family_id: &str) -> Result<(), AppError> {
+        self.collection
+            .delete_many(doc! { "family_id": family_id })
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_all_for_user(&self, user_id: ObjectId) -> Result<(), AppError> {
+        self.collection
+            .delete_many(doc! { "user_id": user_id })
+            .await?;
+        Ok(())
+    }
+
+    async fn count_for_family(&self, family_id: &str) -> Result<u64, AppError> {
+        Ok(self
+            .collection
+            .count_documents(doc! { "family_id": family_id })
+            .await?)
     }
 }

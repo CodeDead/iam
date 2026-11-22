@@ -443,6 +443,58 @@ impl RefreshTokenRepository for InMemoryRefreshTokenRepository {
         }
         Ok(())
     }
+
+    async fn prune_revoked_in_family(
+        &self,
+        family_id: &str,
+        keep_latest: usize,
+    ) -> Result<(), AppError> {
+        let mut guard = self.tokens.write().await;
+        let mut revoked: Vec<(String, i64, ObjectId)> = guard
+            .iter()
+            .filter_map(|(hash, token)| {
+                if token.family_id == family_id
+                    && let Some(revoked_at) = token.revoked_at
+                {
+                    Some((hash.clone(), revoked_at.timestamp_millis(), token.id))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        revoked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2)));
+        for (hash, _, _) in revoked.into_iter().skip(keep_latest) {
+            guard.remove(&hash);
+        }
+        Ok(())
+    }
+
+    async fn delete_family(&self, family_id: &str) -> Result<(), AppError> {
+        self.tokens
+            .write()
+            .await
+            .retain(|_, token| token.family_id != family_id);
+        Ok(())
+    }
+
+    async fn delete_all_for_user(&self, user_id: ObjectId) -> Result<(), AppError> {
+        self.tokens
+            .write()
+            .await
+            .retain(|_, token| token.user_id != user_id);
+        Ok(())
+    }
+
+    async fn count_for_family(&self, family_id: &str) -> Result<u64, AppError> {
+        Ok(self
+            .tokens
+            .read()
+            .await
+            .values()
+            .filter(|t| t.family_id == family_id)
+            .count() as u64)
+    }
 }
 
 #[derive(Default)]

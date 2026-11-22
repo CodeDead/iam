@@ -37,6 +37,8 @@ use crate::{
     },
 };
 
+const MAX_REVOKED_TOKENS_PER_FAMILY: usize = 5;
+
 pub struct AuthSession {
     pub response: AuthTokenResponse,
     pub raw_refresh_token: String,
@@ -374,6 +376,11 @@ impl AuthService {
             ));
         }
 
+        // Bound per-session storage growth under rapid refreshes while preserving recent reuse detection.
+        self.refresh_token_repo
+            .prune_revoked_in_family(&stored.family_id, MAX_REVOKED_TOKENS_PER_FAMILY)
+            .await?;
+
         self.build_auth_session(user, new_raw_token).await
     }
 
@@ -384,7 +391,7 @@ impl AuthService {
             let token_hash = sha256_hex(raw);
             if let Some(stored) = self.refresh_token_repo.find_by_hash(&token_hash).await? {
                 self.refresh_token_repo
-                    .revoke_family(&stored.family_id)
+                    .delete_family(&stored.family_id)
                     .await?;
                 let user_email = self
                     .user_repo

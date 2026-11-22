@@ -30,6 +30,7 @@ impl MongoDb {
     pub async fn connect(
         settings: &MongoDbSettings,
         audit_log_retention_days: u64,
+        revoked_token_retention_seconds: u64,
     ) -> Result<Self, AppError> {
         let mut client_options = ClientOptions::parse(&settings.uri).await?;
         client_options.max_pool_size = Some(settings.max_pool_size);
@@ -58,7 +59,9 @@ impl MongoDb {
             database,
             supports_transactions,
         };
-        mongo.ensure_indexes(audit_log_retention_days).await?;
+        mongo
+            .ensure_indexes(audit_log_retention_days, revoked_token_retention_seconds)
+            .await?;
         Ok(mongo)
     }
 
@@ -67,7 +70,11 @@ impl MongoDb {
         Ok(())
     }
 
-    pub async fn ensure_indexes(&self, audit_log_retention_days: u64) -> Result<(), AppError> {
+    pub async fn ensure_indexes(
+        &self,
+        audit_log_retention_days: u64,
+        revoked_token_retention_seconds: u64,
+    ) -> Result<(), AppError> {
         // Users collection indexes
         let users = self.database.collection::<Document>(USERS_COLLECTION);
         users
@@ -205,6 +212,14 @@ impl MongoDb {
                     )
                     .build(),
                 IndexModel::builder()
+                    .keys(doc! { "family_id": 1, "revoked_at": -1 })
+                    .options(
+                        IndexOptions::builder()
+                            .name("family_revoked_at_idx".to_string())
+                            .build(),
+                    )
+                    .build(),
+                IndexModel::builder()
                     .keys(doc! { "expires_at": 1 })
                     .options(
                         IndexOptions::builder()
@@ -215,6 +230,39 @@ impl MongoDb {
                     .build(),
             ])
             .await?;
+
+        if revoked_token_retention_seconds > 0 {
+            let ttl_index = IndexModel::builder()
+                .keys(doc! { "revoked_at": 1 })
+                .options(
+                    IndexOptions::builder()
+                        .expire_after(Duration::from_secs(revoked_token_retention_seconds))
+                        .name("revoked_at_ttl".to_string())
+                        .build(),
+                )
+                .build();
+
+            if let Err(err) = refresh_tokens.create_index(ttl_index).await {
+                let expire_i64 = i64::try_from(revoked_token_retention_seconds).unwrap_or(i64::MAX);
+                let coll_mod = self
+                    .database
+                    .run_command(doc! {
+                        "collMod": REFRESH_TOKENS_COLLECTION,
+                        "index": {
+                            "name": "revoked_at_ttl",
+                            "expireAfterSeconds": expire_i64,
+                        }
+                    })
+                    .await;
+                if let Err(mod_err) = coll_mod {
+                    warn!(
+                        create_error = %err,
+                        coll_mod_error = %mod_err,
+                        "Failed to create or update refresh_tokens revoked_at TTL index"
+                    );
+                }
+            }
+        }
 
         // Audit logs collection indexes
         let audit_logs = self.database.collection::<Document>(AUDIT_LOGS_COLLECTION);

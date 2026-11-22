@@ -6,11 +6,11 @@ REST API backend for **CodeDead IAM**, targeting **Rust Edition 2024 (`rustc 1.1
 
 - `src/web/controller/` — Thin HTTP controllers (`audit`, `auth`, `users`, `roles`, `permissions`, `profile` including self-service account deletion, `dashboard`, `health`).
 - `src/web/dto/` — Validated API request/response DTOs (`#[serde(deny_unknown_fields)]`).
-- `src/services/` — Business rules, privilege-escalation protection, structured + persisted audit logging, cache invalidation, and session revocation.
+- `src/services/` — Business rules, privilege-escalation protection, structured + persisted audit logging, cache invalidation, and session revocation / refresh-token cleanup (per-family pruning on rotation and immediate deletion on logout or account deletion).
 - `src/repository/` — Domain-grouped repositories (`*_repository.rs`) and BSON DAOs (`dao/*.rs`) for `user`, `role`, `permission`, `auth`, and `audit`.
 - `src/middleware/` — JWT authentication, `require_permission` RBAC guards, double-submit CSRF validation, bounded-memory rate limiting (both `/api/v1` and `/api/v1/auth`, with `CF-Connecting-IP` / `TRUST_PROXY_HEADERS` support), and request ID / security headers.
 - `src/security/` — Argon2id password hashing (with dummy verification timing protection), EdDSA (Ed25519) JWT signing/verification, key loading, and opaque token / SHA-256 helpers.
-- `src/database/` — MongoDB connection, index initialization (including `audit_logs` TTL retention), replica-set transaction detection, and system RBAC seeding.
+- `src/database/` — MongoDB connection, index initialization (including `refresh_tokens` `expires_at` / `revoked_at` TTL retention and `audit_logs` TTL retention), replica-set transaction detection, and system RBAC seeding.
 - `src/openapi.rs` & `src/routes.rs` — Route wiring and vendored OpenAPI 3.1 / Swagger UI documentation (disabled by default in production via `ENABLE_SWAGGER_UI`).
 
 ## Quick Start

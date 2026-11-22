@@ -131,8 +131,12 @@ impl AppState {
 
     pub async fn from_mongodb(settings: Settings) -> Result<Self, AppError> {
         let settings = Arc::new(settings);
-        let mongo =
-            MongoDb::connect(&settings.mongodb, settings.app.audit_log_retention_days).await?;
+        let mongo = MongoDb::connect(
+            &settings.mongodb,
+            settings.app.audit_log_retention_days,
+            settings.jwt.revoked_token_retention_seconds,
+        )
+        .await?;
         let keys = JwtKeyPair::from_settings(&settings)?;
         let jwt_service = Arc::new(JwtService::new(keys, &settings.jwt));
 
