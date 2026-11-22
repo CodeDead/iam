@@ -4,7 +4,7 @@ This directory contains production deployment templates for running **CodeDead I
 
 ## Files
 
-- [`swarm-stack.yml`](swarm-stack.yml) — Docker Swarm stack using pre-built GHCR images, external Ed25519 Docker Secrets (`/run/secrets/jwt_{private,public}.pem` owned by UID `10001`), `/health/ready` checks, `start-first` zero-downtime rollouts with rollback, and Traefik same-domain routing (`/api` & `/health` → backend, `/` → frontend).
+- [`swarm-stack.yml`](swarm-stack.yml) — Docker Swarm stack using pre-built GHCR images (both backend and unprivileged frontend running non-root on port `8080`), external Ed25519 Docker Secrets (`/run/secrets/jwt_{private,public}.pem` owned by UID `10001`), `/health/ready` checks, `start-first` zero-downtime rollouts with rollback, production defaults (`TRUST_PROXY_HEADERS=true` supporting `CF-Connecting-IP` behind Cloudflare Tunnel + Traefik, `ENABLE_SWAGGER_UI=false`, `AUDIT_LOG_RETENTION_DAYS=90`), and Traefik same-domain routing (`/api` & `/health` → backend, `/` → frontend).
 - [`portainer.env.example`](portainer.env.example) — Environment variable template for Portainer's **"Load variables from `.env` file"** option.
 
 ## Deployment Steps

@@ -10,6 +10,14 @@ pub struct AppSettings {
     pub environment: String,
     pub require_email_verification: bool,
     pub permission_cache_ttl_seconds: u64,
+    #[serde(default)]
+    pub enable_swagger_ui: Option<bool>,
+    #[serde(default = "default_audit_log_retention_days")]
+    pub audit_log_retention_days: u64,
+}
+
+fn default_audit_log_retention_days() -> u64 {
+    90
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -52,6 +60,8 @@ pub struct RateLimitSettings {
     pub enabled: bool,
     pub auth_requests_per_minute: u32,
     pub api_requests_per_minute: u32,
+    #[serde(default)]
+    pub trust_proxy_headers: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -80,6 +90,8 @@ impl Default for Settings {
                 environment: "development".to_string(),
                 require_email_verification: false,
                 permission_cache_ttl_seconds: 30,
+                enable_swagger_ui: None,
+                audit_log_retention_days: default_audit_log_retention_days(),
             },
             server: ServerSettings {
                 host: "127.0.0.1".to_string(),
@@ -112,6 +124,7 @@ impl Default for Settings {
                 enabled: true,
                 auth_requests_per_minute: 30,
                 api_requests_per_minute: 300,
+                trust_proxy_headers: false,
             },
             bootstrap: BootstrapSettings {
                 super_admin_email: "admin@example.com".to_string(),
@@ -131,9 +144,18 @@ impl Settings {
             .add_source(File::with_name("config/default").required(false))
             .add_source(File::with_name("config/local").required(false));
 
-        let mut settings: Self = match builder.build() {
-            Ok(cfg) => cfg.try_deserialize().unwrap_or_default(),
-            Err(_) => Self::default(),
+        let has_config_files = std::path::Path::new("config/default.toml").exists()
+            || std::path::Path::new("config/local.toml").exists();
+
+        let mut settings: Self = if has_config_files {
+            let built = builder
+                .build()
+                .map_err(|e| AppError::Internal(format!("Failed to load configuration: {e}")))?;
+            built.try_deserialize().map_err(|e| {
+                AppError::Internal(format!("Failed to deserialize configuration: {e}"))
+            })?
+        } else {
+            Self::default()
         };
 
         apply_env_overrides(&mut settings);
@@ -143,6 +165,10 @@ impl Settings {
 
     pub fn is_production(&self) -> bool {
         self.app.environment.eq_ignore_ascii_case("production")
+    }
+
+    pub fn is_swagger_enabled(&self) -> bool {
+        self.app.enable_swagger_ui.unwrap_or(!self.is_production())
     }
 
     pub fn validate_security(&self) -> Result<(), AppError> {
@@ -197,6 +223,16 @@ fn apply_env_overrides(settings: &mut Settings) {
         && let Ok(parsed) = val.parse::<u64>()
     {
         settings.app.permission_cache_ttl_seconds = parsed;
+    }
+    if let Ok(val) = env::var("ENABLE_SWAGGER_UI")
+        && let Ok(parsed) = val.parse::<bool>()
+    {
+        settings.app.enable_swagger_ui = Some(parsed);
+    }
+    if let Ok(val) = env::var("AUDIT_LOG_RETENTION_DAYS")
+        && let Ok(parsed) = val.parse::<u64>()
+    {
+        settings.app.audit_log_retention_days = parsed;
     }
 
     if let Ok(val) = env::var("SERVER_HOST") {
@@ -283,6 +319,11 @@ fn apply_env_overrides(settings: &mut Settings) {
         && let Ok(parsed) = val.parse::<u32>()
     {
         settings.rate_limit.api_requests_per_minute = parsed;
+    }
+    if let Ok(val) = env::var("TRUST_PROXY_HEADERS")
+        && let Ok(parsed) = val.parse::<bool>()
+    {
+        settings.rate_limit.trust_proxy_headers = parsed;
     }
 
     if let Ok(val) = env::var("BOOTSTRAP_SUPER_ADMIN_EMAIL") {

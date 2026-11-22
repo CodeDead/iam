@@ -1,12 +1,28 @@
+use std::sync::OnceLock;
+
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 
 use crate::common::errors::AppError;
+
+static DUMMY_PASSWORD_HASH: OnceLock<String> = OnceLock::new();
 
 fn build_argon2() -> Result<Argon2<'static>, AppError> {
     // OWASP-aligned Argon2id parameters: 19 MiB memory, 2 iterations, 1 lane.
     let params = Params::new(19_456, 2, 1, None)
         .map_err(|e| AppError::internal(format!("Failed to construct Argon2id params: {e}")))?;
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+}
+
+fn dummy_password_hash() -> Result<&'static str, AppError> {
+    if let Some(existing) = DUMMY_PASSWORD_HASH.get() {
+        return Ok(existing.as_str());
+    }
+    let generated = hash_password_sync("dummy-timing-equalization-secret-01!")?;
+    let _ = DUMMY_PASSWORD_HASH.set(generated);
+    DUMMY_PASSWORD_HASH
+        .get()
+        .map(String::as_str)
+        .ok_or_else(|| AppError::internal("Failed to initialize dummy password hash"))
 }
 
 pub fn hash_password_sync(password: &str) -> Result<String, AppError> {
@@ -36,6 +52,17 @@ pub async fn verify_password(password: String, password_hash: String) -> Result<
     tokio::task::spawn_blocking(move || verify_password_sync(&password, &password_hash))
         .await
         .map_err(|e| AppError::internal(format!("Password verification task failed: {e}")))?
+}
+
+/// Performs an Argon2id verification against a dummy hash so unknown-account logins
+/// consume the same CPU/memory time as known-account password mismatches.
+pub async fn verify_dummy_password(password: String) {
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Ok(dummy) = dummy_password_hash() {
+            let _ = verify_password_sync(&password, dummy);
+        }
+    })
+    .await;
 }
 
 #[cfg(test)]

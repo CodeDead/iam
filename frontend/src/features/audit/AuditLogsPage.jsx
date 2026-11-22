@@ -52,12 +52,15 @@ const ACTION_OPTIONS = [
   { value: 'profile.account_deleted', label: 'profile.account_deleted' },
   { value: 'auth.registered', label: 'auth.registered' },
   { value: 'auth.login', label: 'auth.login' },
+  { value: 'auth.login_failed', label: 'auth.login_failed' },
   { value: 'auth.logout', label: 'auth.logout' },
   { value: 'auth.refresh_token_reused', label: 'auth.refresh_token_reused' },
 ];
 
 function getActionBadgeColor(action = '') {
-  if (action.endsWith('deleted') || action.includes('reused')) return 'red';
+  if (action.endsWith('deleted') || action.includes('reused') || action.endsWith('_failed')) {
+    return 'red';
+  }
   if (action.endsWith('.created') || action.endsWith('.registered')) return 'green';
   if (action.endsWith('.login')) return 'teal';
   if (action.endsWith('.logout')) return 'gray';

@@ -27,7 +27,10 @@ pub struct MongoDb {
 }
 
 impl MongoDb {
-    pub async fn connect(settings: &MongoDbSettings) -> Result<Self, AppError> {
+    pub async fn connect(
+        settings: &MongoDbSettings,
+        audit_log_retention_days: u64,
+    ) -> Result<Self, AppError> {
         let mut client_options = ClientOptions::parse(&settings.uri).await?;
         client_options.max_pool_size = Some(settings.max_pool_size);
         client_options.min_pool_size = Some(settings.min_pool_size);
@@ -55,7 +58,7 @@ impl MongoDb {
             database,
             supports_transactions,
         };
-        mongo.ensure_indexes().await?;
+        mongo.ensure_indexes(audit_log_retention_days).await?;
         Ok(mongo)
     }
 
@@ -64,7 +67,7 @@ impl MongoDb {
         Ok(())
     }
 
-    pub async fn ensure_indexes(&self) -> Result<(), AppError> {
+    pub async fn ensure_indexes(&self, audit_log_retention_days: u64) -> Result<(), AppError> {
         // Users collection indexes
         let users = self.database.collection::<Document>(USERS_COLLECTION);
         users
@@ -251,6 +254,40 @@ impl MongoDb {
                     .build(),
             ])
             .await?;
+
+        if audit_log_retention_days > 0 {
+            let expire_secs = audit_log_retention_days.saturating_mul(86_400);
+            let ttl_index = IndexModel::builder()
+                .keys(doc! { "created_at": 1 })
+                .options(
+                    IndexOptions::builder()
+                        .expire_after(Duration::from_secs(expire_secs))
+                        .name("audit_created_at_ttl".to_string())
+                        .build(),
+                )
+                .build();
+
+            if let Err(err) = audit_logs.create_index(ttl_index).await {
+                let expire_i64 = i64::try_from(expire_secs).unwrap_or(i64::MAX);
+                let coll_mod = self
+                    .database
+                    .run_command(doc! {
+                        "collMod": AUDIT_LOGS_COLLECTION,
+                        "index": {
+                            "name": "audit_created_at_ttl",
+                            "expireAfterSeconds": expire_i64,
+                        }
+                    })
+                    .await;
+                if let Err(mod_err) = coll_mod {
+                    warn!(
+                        create_error = %err,
+                        coll_mod_error = %mod_err,
+                        "Failed to create or update audit_logs TTL index"
+                    );
+                }
+            }
+        }
 
         info!("MongoDB indexes verified");
         Ok(())

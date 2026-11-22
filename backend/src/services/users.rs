@@ -431,6 +431,7 @@ impl UserService {
         }
 
         user.roles = new_roles.iter().map(|r| r.id).collect();
+        user.token_version = user.token_version.saturating_add(1);
         user.updated_at = BsonDateTime::now();
         let updated = self.user_repo.update(&user).await?;
 

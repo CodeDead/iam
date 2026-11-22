@@ -1,5 +1,5 @@
 # ---- Builder Stage ----
-FROM node:current-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -15,15 +15,16 @@ COPY src ./src
 
 RUN npm run build
 
-# ---- Runtime Stage ----
-FROM nginx:stable-alpine AS runtime
+# ---- Runtime Stage (Non-Root Unprivileged Nginx) ----
+FROM nginxinc/nginx-unprivileged:stable-alpine AS runtime
 
+COPY security-headers.inc /etc/nginx/conf.d/security-headers.inc
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:80/healthz || exit 1
+    CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

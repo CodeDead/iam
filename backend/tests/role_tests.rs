@@ -106,7 +106,7 @@ async fn role_crud_system_role_protection_and_immediate_permission_revocation() 
     let role_body: Value = test::read_body_json(create_role_resp).await;
     let auditor_role_id = role_body["data"]["id"].as_str().unwrap().to_string();
 
-    // Assign Auditor role to Bob
+    // Assign Auditor role to Bob (increments token_version and revokes old sessions)
     let assign_resp = test::call_service(
         &app,
         test::TestRequest::put()
@@ -118,7 +118,37 @@ async fn role_crud_system_role_protection_and_immediate_permission_revocation() 
     .await;
     assert_eq!(assign_resp.status(), StatusCode::OK);
 
-    // Bob can now list users with his existing JWT (cache invalidated on role assignment!)
+    // Bob's previous JWT is immediately invalidated upon role change (401 SESSION_REVOKED)
+    let bob_old_token_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/users")
+            .insert_header(("Authorization", format!("Bearer {bob_token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(bob_old_token_resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Bob signs in again to receive a fresh JWT with the updated Auditor role
+    let bob_relogin_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(json!({
+                "email": "bob@test.local",
+                "password": "BobPassword123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(bob_relogin_resp.status(), StatusCode::OK);
+    let bob_relogin_body: Value = test::read_body_json(bob_relogin_resp).await;
+    let bob_token = bob_relogin_body["data"]["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Bob can now list users with his fresh JWT
     let bob_list_ok = test::call_service(
         &app,
         test::TestRequest::get()

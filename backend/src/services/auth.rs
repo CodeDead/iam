@@ -27,7 +27,7 @@ use crate::{
     security::{
         csrf::{generate_opaque_token, sha256_hex},
         jwt::JwtService,
-        password::{hash_password, verify_password},
+        password::{hash_password, verify_dummy_password, verify_password},
     },
     services::audit::{AuditEvent, AuditService},
     web::dto::{
@@ -162,12 +162,50 @@ impl AuthService {
         validate_dto(&req)?;
 
         let email = normalize_email(&req.email);
-        let mut user = self.user_repo.find_by_email(&email).await?.ok_or_else(|| {
-            AppError::unauthorized("INVALID_CREDENTIALS", "Invalid email or password")
-        })?;
+        let Some(mut user) = self.user_repo.find_by_email(&email).await? else {
+            // Equalize Argon2id latency for unknown emails to prevent timing-based user enumeration.
+            verify_dummy_password(req.password).await;
+            self.audit_service
+                .record(
+                    AuditEvent::system(
+                        "auth.login_failed",
+                        "auth",
+                        format!("Failed login attempt for '{email}'"),
+                    )
+                    .with_actor(None, Some(email.clone()))
+                    .with_details(json!({
+                        "reason": "invalid_credentials",
+                        "ip_address": ip_address,
+                        "user_agent": user_agent,
+                    }))
+                    .as_warning(),
+                )
+                .await;
+            return Err(AppError::unauthorized(
+                "INVALID_CREDENTIALS",
+                "Invalid email or password",
+            ));
+        };
 
         let password_valid = verify_password(req.password, user.password_hash.clone()).await?;
         if !password_valid {
+            self.audit_service
+                .record(
+                    AuditEvent::system(
+                        "auth.login_failed",
+                        "auth",
+                        format!("Failed login attempt for '{}'", user.email),
+                    )
+                    .with_actor(Some(user.id), Some(user.email.clone()))
+                    .with_resource(user.id.to_hex(), user.email.clone())
+                    .with_details(json!({
+                        "reason": "invalid_credentials",
+                        "ip_address": ip_address,
+                        "user_agent": user_agent,
+                    }))
+                    .as_warning(),
+                )
+                .await;
             return Err(AppError::unauthorized(
                 "INVALID_CREDENTIALS",
                 "Invalid email or password",
