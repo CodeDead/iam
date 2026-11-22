@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use mongodb::bson::DateTime as BsonDateTime;
+use serde_json::json;
 
 use crate::{
     common::{
@@ -15,6 +16,7 @@ use crate::{
         user::{dao::user::UserProfileInfo, user_repository::UserRepository},
     },
     security::password::{hash_password, verify_password},
+    services::audit::{AuditEvent, AuditService},
     web::dto::{
         profile::{ChangePasswordRequest, UpdateProfileRequest},
         roles::RoleSummary,
@@ -29,6 +31,7 @@ pub struct ProfileService {
     permission_repo: Arc<dyn PermissionRepository>,
     refresh_token_repo: Arc<dyn RefreshTokenRepository>,
     permission_cache: PermissionCache,
+    audit_service: AuditService,
 }
 
 impl ProfileService {
@@ -38,6 +41,7 @@ impl ProfileService {
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
         permission_cache: PermissionCache,
+        audit_service: AuditService,
     ) -> Self {
         Self {
             user_repo,
@@ -45,6 +49,7 @@ impl ProfileService {
             permission_repo,
             refresh_token_repo,
             permission_cache,
+            audit_service,
         }
     }
 
@@ -85,6 +90,7 @@ impl ProfileService {
             .await?
             .ok_or_else(|| AppError::not_found("USER_NOT_FOUND", "User profile not found"))?;
 
+        let previous_email = user.email.clone();
         if let Some(first_name) = req.first_name {
             user.first_name = first_name.trim().to_string();
         }
@@ -110,6 +116,24 @@ impl ProfileService {
 
         user.updated_at = BsonDateTime::now();
         let updated = self.user_repo.update(&user).await?;
+
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "profile.updated",
+                    "profile",
+                    format!("Updated profile for '{}'", updated.email),
+                )
+                .with_resource(updated.id.to_hex(), updated.email.clone())
+                .with_details(json!({
+                    "previous_email": previous_email,
+                    "email": updated.email,
+                    "first_name": updated.first_name,
+                    "last_name": updated.last_name,
+                })),
+            )
+            .await;
 
         let roles = self.role_repo.find_by_ids(&updated.roles).await?;
         let summaries: Vec<RoleSummary> = roles.iter().map(RoleSummary::from).collect();
@@ -159,6 +183,18 @@ impl ProfileService {
         self.user_repo.update(&user).await?;
         self.refresh_token_repo.revoke_all_for_user(user.id).await?;
         self.permission_cache.invalidate_user(user.id).await;
+
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "profile.password_changed",
+                    "profile",
+                    format!("Changed password for '{}'", user.email),
+                )
+                .with_resource(user.id.to_hex(), user.email.clone()),
+            )
+            .await;
 
         Ok(())
     }

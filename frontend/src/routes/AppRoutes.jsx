@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { AuditLogsPage } from '../features/audit/AuditLogsPage';
 import { ForbiddenPage } from '../features/auth/ForbiddenPage';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RegisterPage } from '../features/auth/RegisterPage';
@@ -52,6 +53,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requiredPermission="permissions.read">
               <PermissionsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-logs"
+          element={
+            <ProtectedRoute requiredPermission="audit_logs.read">
+              <AuditLogsPage />
             </ProtectedRoute>
           }
         />

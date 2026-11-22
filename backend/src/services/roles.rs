@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
+use serde_json::json;
 
 use crate::{
     common::{
@@ -18,6 +19,7 @@ use crate::{
         },
         user::user_repository::UserRepository,
     },
+    services::audit::{AuditEvent, AuditService},
     web::dto::{
         permissions::PermissionResponse,
         roles::{
@@ -43,6 +45,7 @@ pub struct RoleService {
     permission_repo: Arc<dyn PermissionRepository>,
     user_repo: Arc<dyn UserRepository>,
     permission_cache: PermissionCache,
+    audit_service: AuditService,
 }
 
 impl RoleService {
@@ -51,12 +54,14 @@ impl RoleService {
         permission_repo: Arc<dyn PermissionRepository>,
         user_repo: Arc<dyn UserRepository>,
         permission_cache: PermissionCache,
+        audit_service: AuditService,
     ) -> Self {
         Self {
             role_repo,
             permission_repo,
             user_repo,
             permission_cache,
+            audit_service,
         }
     }
 
@@ -144,6 +149,24 @@ impl RoleService {
         };
 
         let created = self.role_repo.create(&role).await?;
+        let mut perm_names: Vec<String> = permissions.iter().map(|p| p.name.clone()).collect();
+        perm_names.sort();
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "role.created",
+                    "role",
+                    format!("Created role '{}'", created.name),
+                )
+                .with_resource(created.id.to_hex(), created.name.clone())
+                .with_details(json!({
+                    "description": created.description,
+                    "permissions": perm_names,
+                })),
+            )
+            .await;
+
         let perm_dtos: Vec<PermissionResponse> = permissions
             .into_iter()
             .map(PermissionResponse::from)
@@ -170,6 +193,7 @@ impl RoleService {
             ));
         }
 
+        let previous_name = role.name.clone();
         if let Some(new_name) = req.name {
             let trimmed = new_name.trim().to_string();
             if trimmed != role.name {
@@ -196,6 +220,22 @@ impl RoleService {
         role.updated_at = BsonDateTime::now();
         let updated = self.role_repo.update(&role).await?;
         self.permission_cache.invalidate_all().await;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "role.updated",
+                    "role",
+                    format!("Updated role '{}'", updated.name),
+                )
+                .with_resource(updated.id.to_hex(), updated.name.clone())
+                .with_details(json!({
+                    "previous_name": previous_name,
+                    "name": updated.name,
+                    "description": updated.description,
+                })),
+            )
+            .await;
 
         let perms = self.load_role_permissions(&updated).await?;
         Ok(RoleResponse::from_role(updated, Some(perms)))
@@ -216,6 +256,17 @@ impl RoleService {
         self.user_repo.remove_role_from_all_users(role_id).await?;
         self.role_repo.delete(role_id).await?;
         self.permission_cache.invalidate_all().await;
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "role.deleted",
+                    "role",
+                    format!("Deleted role '{}'", role.name),
+                )
+                .with_resource(role.id.to_hex(), role.name.clone()),
+            )
+            .await;
         Ok(())
     }
 
@@ -278,6 +329,26 @@ impl RoleService {
             .map(PermissionResponse::from)
             .collect();
         perm_dtos.sort_by(|a, b| a.name.cmp(&b.name));
+        let perm_names: Vec<String> = perm_dtos.iter().map(|p| p.name.clone()).collect();
+        self.audit_service
+            .record(
+                AuditEvent::by_actor(
+                    actor,
+                    "role.permissions_updated",
+                    "role",
+                    format!(
+                        "Updated permissions for role '{}' ({} permissions)",
+                        updated.name,
+                        perm_names.len()
+                    ),
+                )
+                .with_resource(updated.id.to_hex(), updated.name.clone())
+                .with_details(json!({
+                    "permissions": perm_names,
+                })),
+            )
+            .await;
+
         Ok(RoleResponse::from_role(updated, Some(perm_dtos)))
     }
 

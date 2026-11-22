@@ -9,6 +9,7 @@ use crate::{
     database::{mongodb::MongoDb, seed::seed_system_rbac},
     middleware::PermissionCache,
     repository::{
+        audit::audit_log_repository::{AuditLogRepository, MongoAuditLogRepository},
         auth::refresh_token_repository::{MongoRefreshTokenRepository, RefreshTokenRepository},
         permission::permission_repository::{MongoPermissionRepository, PermissionRepository},
         role::role_repository::{MongoRoleRepository, RoleRepository},
@@ -17,8 +18,9 @@ use crate::{
     routes::configure_routes,
     security::{jwt::JwtService, keys::JwtKeyPair},
     services::{
-        auth::AuthService, dashboard::DashboardService, permissions::PermissionService,
-        profile::ProfileService, roles::RoleService, users::UserService,
+        audit::AuditService, auth::AuthService, dashboard::DashboardService,
+        permissions::PermissionService, profile::ProfileService, roles::RoleService,
+        users::UserService,
     },
 };
 
@@ -32,6 +34,8 @@ pub struct AppState {
     pub role_repo: Arc<dyn RoleRepository>,
     pub permission_repo: Arc<dyn PermissionRepository>,
     pub refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+    pub audit_repo: Arc<dyn AuditLogRepository>,
+    pub audit_service: AuditService,
     pub auth_service: AuthService,
     pub user_service: UserService,
     pub role_service: RoleService,
@@ -41,6 +45,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_repositories(
         settings: Arc<Settings>,
         mongodb: Option<MongoDb>,
@@ -49,8 +54,10 @@ impl AppState {
         role_repo: Arc<dyn RoleRepository>,
         permission_repo: Arc<dyn PermissionRepository>,
         refresh_token_repo: Arc<dyn RefreshTokenRepository>,
+        audit_repo: Arc<dyn AuditLogRepository>,
     ) -> Self {
         let permission_cache = PermissionCache::new(settings.app.permission_cache_ttl_seconds);
+        let audit_service = AuditService::new(Arc::clone(&audit_repo));
 
         let auth_service = AuthService::new(
             Arc::clone(&settings),
@@ -60,6 +67,7 @@ impl AppState {
             Arc::clone(&permission_repo),
             Arc::clone(&refresh_token_repo),
             permission_cache.clone(),
+            audit_service.clone(),
         );
 
         let user_service = UserService::new(
@@ -68,6 +76,7 @@ impl AppState {
             Arc::clone(&permission_repo),
             Arc::clone(&refresh_token_repo),
             permission_cache.clone(),
+            audit_service.clone(),
         );
 
         let role_service = RoleService::new(
@@ -75,12 +84,14 @@ impl AppState {
             Arc::clone(&permission_repo),
             Arc::clone(&user_repo),
             permission_cache.clone(),
+            audit_service.clone(),
         );
 
         let permission_service = PermissionService::new(
             Arc::clone(&permission_repo),
             Arc::clone(&role_repo),
             permission_cache.clone(),
+            audit_service.clone(),
         );
 
         let profile_service = ProfileService::new(
@@ -89,6 +100,7 @@ impl AppState {
             Arc::clone(&permission_repo),
             Arc::clone(&refresh_token_repo),
             permission_cache.clone(),
+            audit_service.clone(),
         );
 
         let dashboard_service = DashboardService::new(
@@ -106,6 +118,8 @@ impl AppState {
             role_repo,
             permission_repo,
             refresh_token_repo,
+            audit_repo,
+            audit_service,
             auth_service,
             user_service,
             role_service,
@@ -133,6 +147,8 @@ impl AppState {
                 &mongo.database,
                 mongo.supports_transactions,
             ));
+        let audit_repo: Arc<dyn AuditLogRepository> =
+            Arc::new(MongoAuditLogRepository::new(&mongo.database));
 
         seed_system_rbac(
             &permission_repo,
@@ -150,6 +166,7 @@ impl AppState {
             role_repo,
             permission_repo,
             refresh_token_repo,
+            audit_repo,
         ))
     }
 }

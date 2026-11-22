@@ -22,7 +22,7 @@ The repository contains two independently structured projects communicating excl
                                                                          ┌────────────────────────────────────┐
                                                                          │  MongoDB (Replica Set rs0)         │
                                                                          │  - users, roles, permissions,      │
-                                                                         │    refresh_tokens (TTL indexed)    │
+                                                                         │    refresh_tokens, audit_logs      │
                                                                          └────────────────────────────────────┘
 ```
 
@@ -30,7 +30,7 @@ The repository contains two independently structured projects communicating excl
 
 - **Controllers (`web/controller/*.rs`)**: Thin HTTP adapters; extract DTOs/params, attach cookies, call services, and format `ApiResponse`. Never access MongoDB or embed business logic.
 - **DTOs (`web/dto/*.rs`)**: Strict separation between MongoDB BSON DAOs and API request/response contracts (`#[serde(deny_unknown_fields)]` blocks mass assignment; password hashes are never serialized).
-- **Services (`services/*.rs`)**: Business rules, DTO validation, defense-in-depth permission & privilege-escalation checks, cache invalidation, and session revocation.
+- **Services (`services/*.rs`)**: Business rules, DTO validation, defense-in-depth permission & privilege-escalation checks, structured `tracing` + persistent MongoDB audit logging (`auth_backend::audit`), cache invalidation, and session revocation.
 - **Repositories & DAOs (`repository/*/*_repository.rs`, `repository/*/dao/*.rs`)**: Trait-based MongoDB persistence with explicit indexes, transaction support, and BSON data access objects.
 - **Module Convention**: Modern Rust 2024 directory modules — **zero `mod.rs` files** exist anywhere in the project.
 - **Safety Lints & Release Optimization**: `unsafe_code = "forbid"`, `clippy::{unwrap_used, expect_used, panic} = "deny"`, and an optimized `[profile.release]` (`opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`).
@@ -39,7 +39,8 @@ The repository contains two independently structured projects communicating excl
 
 - **Pure JavaScript (ES6+)** with React 19, React Router 7, Mantine UI 9, Vite 8, and Axios — no TypeScript and no TanStack packages.
 - **Secure Token Lifecycle**: Access tokens live exclusively in JS memory (never `localStorage`), refresh tokens live in `HttpOnly` cookies, and concurrent `401` responses coalesce into a single `/api/v1/auth/refresh` request.
-- **RBAC UX & Session Isolation**: Navigation links, routes, dashboard stats, and profile Account Access Summary are guarded by user permissions; logging out clears route history state so a subsequent user never inherits a restricted redirect.
+- **RBAC UX & Session Isolation**: Navigation links, routes, dashboard stats, Audit Logs (`/audit-logs`), and profile Account Access Summary are guarded by user permissions; logging out clears route history state so a subsequent user never inherits a restricted redirect.
+- **UX, Resilience & Accessibility**: Automatic OS color scheme detection (`defaultColorScheme="auto"`) with manual toggle, offline/timeout/gateway/non-JSON API error handling (`api.js` + `nginx.conf` `/api/` `503` JSON fallback), semantic `<main>` landmarks across all routes, meta description, and `public/robots.txt`.
 
 ---
 
@@ -77,16 +78,18 @@ The repository contains two independently structured projects communicating excl
 │   │   ├── security.rs + security/{keys,password,jwt,csrf}.rs
 │   │   ├── middleware.rs + middleware/{authentication,authorization,csrf,rate_limit,request_id}.rs
 │   │   ├── web.rs
-│   │   ├── web/controller.rs + web/controller/{auth,users,roles,permissions,profile,dashboard,health}.rs
-│   │   ├── web/dto.rs + web/dto/{auth,users,roles,permissions,profile,dashboard,health}.rs
-│   │   ├── services.rs + services/{auth,users,roles,permissions,profile,dashboard}.rs
+│   │   ├── web/controller.rs + web/controller/{audit,auth,users,roles,permissions,profile,dashboard,health}.rs
+│   │   ├── web/dto.rs + web/dto/{audit,auth,users,roles,permissions,profile,dashboard,health}.rs
+│   │   ├── services.rs + services/{audit,auth,users,roles,permissions,profile,dashboard}.rs
 │   │   ├── repository.rs
 │   │   ├── repository/user.rs + repository/user/{user_repository.rs, dao.rs, dao/user.rs}
 │   │   ├── repository/role.rs + repository/role/{role_repository.rs, dao.rs, dao/role.rs}
 │   │   ├── repository/permission.rs + repository/permission/{permission_repository.rs, dao.rs, dao/permission.rs}
 │   │   ├── repository/auth.rs + repository/auth/{refresh_token_repository.rs, dao.rs, dao/refresh_token.rs}
+│   │   ├── repository/audit.rs + repository/audit/{audit_log_repository.rs, dao.rs, dao/audit_log.rs}
 │   │   └── test_support.rs
 │   └── tests/
+│       ├── audit_log_tests.rs
 │       ├── auth_tests.rs
 │       ├── user_tests.rs
 │       ├── role_tests.rs
@@ -103,16 +106,17 @@ The repository contains two independently structured projects communicating excl
     ├── eslint.config.js
     ├── .prettierrc
     ├── .env.example
+    ├── public/robots.txt
     └── src/
         ├── main.jsx, App.jsx, theme.js
         ├── config/api.js
         ├── contexts/{contextInstances,AuthContext,PermissionContext}.jsx
         ├── hooks/{useAuth,usePermissions}.js
-        ├── services/{api,authService,userService,roleService,permissionService,profileService,dashboardService}.js
+        ├── services/{api,auditService,authService,userService,roleService,permissionService,profileService,dashboardService}.js
         ├── components/{common,navigation,forms}/
         ├── layouts/{AuthLayout,DashboardLayout}.jsx
         ├── routes/{AppRoutes,ProtectedRoute}.jsx
-        ├── features/{auth,dashboard,profile,users,roles,permissions}/
+        ├── features/{audit,auth,dashboard,profile,users,roles,permissions}/
         ├── utils/{cookies,errors,formatters}.js
         └── test/
 ```
@@ -129,10 +133,11 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 | `roles` | `_id`, `name`, `description`, `permissions: [ObjectId]`, `is_system`, `created_at`, `updated_at` | Unique `name` (`role_name_unique`), `permissions` (`permissions_idx`), `is_system` (`is_system_idx`) |
 | `permissions` | `_id`, `name` (`resource.action`), `resource`, `action`, `description`, `is_system`, `created_at`, `updated_at` | Unique `name` (`permission_name_unique`), compound unique `(resource, action)` (`resource_action_unique`), `is_system` (`perm_is_system_idx`) |
 | `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), TTL on `expires_at` (`expires_at_ttl`) |
+| `audit_logs` | `_id`, `action`, `resource_type`, `resource_id`, `resource_name`, `actor_id`, `actor_email`, `summary`, `details`, `created_at` | `created_at` (`audit_created_at_desc`), `(action, created_at)` (`audit_action_created_at`), `(resource_type, created_at)` (`audit_resource_type_created_at`), `(actor_id, created_at)` (`audit_actor_id_created_at`) |
 
 - **Relationships**: Users reference multiple `roles` by `ObjectId`; roles reference multiple `permissions` by `ObjectId`. Effective permissions are computed dynamically as the union of permissions across all assigned roles.
 - **Seeded System Roles**: `Super Administrator`, `Administrator`, `Moderator`, `User`.
-- **Seeded System Permissions**: `users.{read,create,update,delete,assign_roles,manage_self_roles}`, `roles.{read,create,update,delete}`, `permissions.{read,create,update,delete}`, `profile.{read,update}`.
+- **Seeded System Permissions**: `users.{read,create,update,delete,assign_roles,manage_self_roles}`, `roles.{read,create,update,delete}`, `permissions.{read,create,update,delete}`, `audit_logs.read`, `profile.{read,update}` (newly-introduced system permissions are automatically backfilled onto existing system roles on startup).
 
 See [backend/migrations/README.md](backend/migrations/README.md) for indexing and replica-set transaction details.
 
@@ -172,7 +177,7 @@ Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`
 | `POST` | `/api/v1/auth/logout` | Refresh cookie + CSRF | Revoke token family & clear cookies |
 | `GET` | `/api/v1/auth/me` | Bearer JWT | Get authenticated user & effective permissions |
 
-### Users, Roles, Permissions, Profile & Dashboard
+### Users, Roles, Permissions, Audit Logs, Profile & Dashboard
 | Method | Endpoint | Required Permission |
 | --- | --- | --- |
 | `GET` | `/api/v1/dashboard/stats` | Authenticated (response filtered per permission) |
@@ -190,6 +195,8 @@ Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`
 | `GET` / `POST` | `/api/v1/permissions` | `permissions.read` / `permissions.create` |
 | `GET` / `PUT` / `DELETE` | `/api/v1/permissions/{id}` | `permissions.read` / `permissions.update` / `permissions.delete` |
 | `GET` | `/api/v1/permissions/{id}/roles` | `permissions.read` + `roles.read` |
+| `GET` | `/api/v1/audit-logs` | `audit_logs.read` |
+| `GET` | `/api/v1/audit-logs/{id}` | `audit_logs.read` |
 
 ### Example Request & Response
 

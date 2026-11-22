@@ -1,15 +1,18 @@
 # CodeDead IAM — Frontend (React / JavaScript / Mantine UI)
 
-Administration web application for **CodeDead IAM**, built with **React 19**, **JavaScript (ES6+)**, **React Router 7**, **Mantine UI 9**, **Vite 8**, and **Axios** (no TypeScript and no TanStack dependencies).
+Administration web application for **CodeDead IAM**, built with **React 19**, **JavaScript (ES6+)**, **React Router 7**, **Mantine UI 9**, **Vite 8** (**Node.js 26**), and **Axios** (no TypeScript and no TanStack dependencies).
 
 ## Structure
 
-- `src/services/` — Axios API client (`api.js` with in-memory access token, `withCredentials`, `X-CSRF-Token`, and concurrent `401` refresh coalescing) plus domain API modules.
+- `public/robots.txt` — Disallows search engine indexing of the IAM portal (copied into the Vite production bundle and Nginx container image).
+- `src/services/` — Axios API client (`api.js` with in-memory access token, `withCredentials`, `X-CSRF-Token`, `15s` timeout, non-JSON/offline `503` detection, and concurrent `401` refresh coalescing) plus domain API modules (`auditService`, `authService`, `userService`, `roleService`, `permissionService`, `profileService`, `dashboardService`).
 - `src/contexts/` & `src/hooks/` — `AuthContext` / `useAuth` and `PermissionContext` / `usePermissions` (`hasPermission`, `hasAnyPermission`, `hasAllPermissions`).
-- `src/routes/` — `AppRoutes` and `ProtectedRoute` (session restoration, permission gating, and post-logout redirect reset).
+- `src/routes/` — `AppRoutes` and `ProtectedRoute` (session restoration, permission gating, `<main>` landmark support, and post-logout redirect reset).
 - `src/components/` — Reusable UI primitives (`PermissionGuard`, `PageHeader`, `StatusBadge`, `ErrorAlert`), `SidebarNav`, and grouped `PermissionMatrix`.
-- `src/features/` — Feature pages and modals for `auth`, `dashboard`, `profile`, `users`, `roles`, and `permissions`.
+- `src/layouts/` — `AuthLayout` and `DashboardLayout` with semantic landmarks and automatic OS color scheme detection (`defaultColorScheme="auto"`) plus manual theme toggle.
+- `src/features/` — Feature pages and modals for `audit`, `auth`, `dashboard`, `profile`, `users`, `roles`, and `permissions`.
 - `src/test/` — Vitest 5 + React Testing Library test suites.
+- `nginx.conf` — Production Nginx configuration with security headers, `/healthz` probe, `/api/` HTTP `503` JSON fallback (preventing `200 OK` HTML responses when the backend is offline), and SPA history fallback.
 
 ## Quick Start
 

@@ -1,6 +1,7 @@
 import { NavLink, Stack } from '@mantine/core';
 import {
   IconDashboard,
+  IconHistory,
   IconKey,
   IconShieldLock,
   IconUserCircle,
@@ -14,6 +15,7 @@ const NAV_ITEMS = [
   { label: 'Users', path: '/users', icon: IconUsers, permission: 'users.read' },
   { label: 'Roles', path: '/roles', icon: IconShieldLock, permission: 'roles.read' },
   { label: 'Permissions', path: '/permissions', icon: IconKey, permission: 'permissions.read' },
+  { label: 'Audit Logs', path: '/audit-logs', icon: IconHistory, permission: 'audit_logs.read' },
   { label: 'My Profile', path: '/profile', icon: IconUserCircle, permission: 'profile.read' },
 ];
 

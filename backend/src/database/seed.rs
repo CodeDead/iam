@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
 use tracing::info;
@@ -55,6 +58,11 @@ pub const SYSTEM_PERMISSIONS: &[(&str, &str, &str)] = &[
     ("permissions", "delete", "Delete non-system permissions"),
     ("profile", "read", "View own user profile"),
     ("profile", "update", "Update own user profile and password"),
+    (
+        "audit_logs",
+        "read",
+        "View system audit logs and activity history",
+    ),
 ];
 
 pub async fn seed_system_rbac(
@@ -65,6 +73,7 @@ pub async fn seed_system_rbac(
 ) -> Result<(), AppError> {
     let now = BsonDateTime::now();
     let mut perm_map: HashMap<String, ObjectId> = HashMap::new();
+    let mut newly_created_perms: HashSet<ObjectId> = HashSet::new();
 
     for &(resource, action, description) in SYSTEM_PERMISSIONS {
         let name = format!("{resource}.{action}");
@@ -82,6 +91,7 @@ pub async fn seed_system_rbac(
                 updated_at: now,
             };
             let created = permission_repo.create(&perm).await?;
+            newly_created_perms.insert(created.id);
             perm_map.insert(name, created.id);
         }
     }
@@ -105,6 +115,7 @@ pub async fn seed_system_rbac(
         "roles.update",
         "roles.delete",
         "permissions.read",
+        "audit_logs.read",
         "profile.read",
         "profile.update",
     ]);
@@ -146,7 +157,22 @@ pub async fn seed_system_rbac(
     let mut super_admin_role_id: Option<ObjectId> = None;
 
     for (name, description, permissions) in role_defs {
-        let role_id = if let Some(existing) = role_repo.find_by_name(name).await? {
+        let role_id = if let Some(mut existing) = role_repo.find_by_name(name).await? {
+            if !newly_created_perms.is_empty() {
+                let mut added = false;
+                for perm_id in &permissions {
+                    if newly_created_perms.contains(perm_id)
+                        && !existing.permissions.contains(perm_id)
+                    {
+                        existing.permissions.push(*perm_id);
+                        added = true;
+                    }
+                }
+                if added {
+                    existing.updated_at = now;
+                    role_repo.update(&existing).await?;
+                }
+            }
             existing.id
         } else {
             let role = Role {
