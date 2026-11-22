@@ -84,7 +84,42 @@ describe('ProfilePage account deletion', () => {
     );
     await user.click(screen.getByRole('button', { name: /permanently delete account/i }));
 
-    expect(await screen.findByText(/current password is incorrect/i)).toBeInTheDocument();
+    expect(
+      (await screen.findAllByText(/current password is incorrect/i)).length
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  it('displays LAST_SUPER_ADMIN_PROTECTED error message when deletion is rejected', async () => {
+    const user = userEvent.setup();
+    profileService.deleteAccount.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          code: 'LAST_SUPER_ADMIN_PROTECTED',
+          message: 'Cannot delete the last active Super Administrator account',
+        },
+      },
+    });
+
+    renderWithProviders(<AppRoutes />, {
+      initialEntries: ['/profile'],
+      initialSession: {
+        user: regularUser,
+        permissions: ['profile.read', 'profile.update', 'profile.delete'],
+      },
+    });
+
+    await user.click(await screen.findByRole('button', { name: /delete my account/i }));
+    await user.type(
+      await screen.findByLabelText(/^enter your current password to confirm/i),
+      'SuperAdmin123!'
+    );
+    await user.click(screen.getByRole('button', { name: /permanently delete account/i }));
+
+    expect(
+      (await screen.findAllByText(/cannot delete the last active super administrator account/i))
+        .length
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('hides the delete account section when the user lacks profile.delete', async () => {

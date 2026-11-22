@@ -1,6 +1,6 @@
 # MongoDB Schema, Indexes & Migrations
 
-This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)) inside the database configured via `MONGODB_DATABASE` (defaults to `user_management`). When new system permissions (such as `audit_logs.read`) are introduced on upgrade, startup seeding automatically creates them and backfills them onto existing default system roles without overwriting custom role edits.
+This application uses MongoDB with automated, idempotent index initialization and system RBAC seeding at startup ([`src/database/mongodb.rs`](../src/database/mongodb.rs) and [`src/database/seed.rs`](../src/database/seed.rs)) inside the database configured via `MONGODB_DATABASE` (defaults to `user_management`). When new system permissions (such as `audit_logs.read` and `profile.delete`) are introduced on upgrade, startup seeding automatically creates them and backfills them onto existing default system roles without overwriting custom role edits.
 
 BSON Data Access Objects (DAOs) and repository implementations live under [`src/repository/`](../src/repository/):
 - `src/repository/user/{user_repository.rs, dao/user.rs}`

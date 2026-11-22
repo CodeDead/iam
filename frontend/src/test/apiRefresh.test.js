@@ -146,5 +146,38 @@ describe('API Token Refresh Concurrency & Session Expiry Handling', () => {
     expect(extractApiError({ code: 'ERR_NETWORK', message: 'Network Error' })).toMatchObject({
       code: 'NETWORK_ERROR',
     });
+    expect(
+      extractApiError({
+        response: {
+          status: 409,
+          data: {
+            code: 'LAST_SUPER_ADMIN_PROTECTED',
+            message: 'Cannot delete the last active Super Administrator account',
+          },
+        },
+      })
+    ).toMatchObject({
+      code: 'LAST_SUPER_ADMIN_PROTECTED',
+      message: 'Cannot delete the last active Super Administrator account',
+      status: 409,
+    });
+    expect(
+      extractApiError({
+        response: {
+          status: 409,
+          data: JSON.stringify({
+            success: false,
+            error: {
+              code: 'LAST_SUPER_ADMIN_PROTECTED',
+              message: 'Cannot delete the last active Super Administrator account',
+            },
+          }),
+        },
+      })
+    ).toMatchObject({
+      code: 'LAST_SUPER_ADMIN_PROTECTED',
+      message: 'Cannot delete the last active Super Administrator account',
+      status: 409,
+    });
   });
 });

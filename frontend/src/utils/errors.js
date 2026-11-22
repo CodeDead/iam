@@ -1,10 +1,39 @@
+function parseResponseData(rawData) {
+  if (typeof rawData !== 'string') {
+    return rawData;
+  }
+  const trimmed = rawData.trim();
+  if (!trimmed.startsWith('{')) {
+    return rawData;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return rawData;
+  }
+}
+
+function extractStructuredPayload(data) {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  if (data.error && typeof data.error === 'object') {
+    return data.error;
+  }
+  if (typeof data.message === 'string' && data.message.trim().length > 0) {
+    return data;
+  }
+  return null;
+}
+
 export function extractApiError(error, fallback = 'An unexpected error occurred') {
   if (!error) {
     return { code: 'UNKNOWN_ERROR', message: fallback, details: null, status: null };
   }
 
   const status = error.response?.status ?? null;
-  const payload = error.response?.data?.error;
+  const responseData = parseResponseData(error.response?.data);
+  const payload = extractStructuredPayload(responseData);
 
   if (payload) {
     return {

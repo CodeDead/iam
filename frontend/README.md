@@ -11,6 +11,7 @@ Administration web application for **CodeDead IAM**, built with **React 19**, **
 - `src/components/` — Reusable UI primitives (`PermissionGuard`, `PageHeader`, `StatusBadge`, `ErrorAlert`), `SidebarNav`, and grouped `PermissionMatrix`.
 - `src/layouts/` — `AuthLayout` and `DashboardLayout` with semantic landmarks and automatic OS color scheme detection (`defaultColorScheme="auto"`) plus manual theme toggle.
 - `src/features/` — Feature pages and modals for `audit`, `auth`, `dashboard`, `profile` (personal details, password change, and password-confirmed self-service account deletion), `users`, `roles`, and `permissions`.
+- `src/utils/` — `errors.js` (normalizes wrapped, unwrapped, and stringified API errors as well as timeout/gateway/offline failures for inline `ErrorAlert` banners and error notifications), `cookies.js`, and `formatters.js`.
 - `src/test/` — Vitest 5 + React Testing Library test suites.
 - `nginx.conf` — Production Nginx configuration with security headers, `/healthz` probe, `/api/` HTTP `503` JSON fallback (preventing `200 OK` HTML responses when the backend is offline), and SPA history fallback.
 

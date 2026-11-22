@@ -123,7 +123,13 @@ export function UsersPage() {
       });
       triggerReload();
     } catch (err) {
-      setError(extractApiError(err, 'Failed to update user status'));
+      const apiError = extractApiError(err, 'Failed to update user status');
+      setError(apiError);
+      notifications.show({
+        title: 'Unable to update status',
+        message: apiError.message,
+        color: 'red',
+      });
     }
   };
 
@@ -149,7 +155,13 @@ export function UsersPage() {
           });
           triggerReload();
         } catch (err) {
-          setError(extractApiError(err, 'Failed to delete user'));
+          const apiError = extractApiError(err, 'Failed to delete user');
+          setError(apiError);
+          notifications.show({
+            title: 'Unable to delete user',
+            message: apiError.message,
+            color: 'red',
+          });
         }
       },
     });

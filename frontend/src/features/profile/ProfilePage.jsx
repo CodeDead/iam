@@ -164,7 +164,6 @@ export function ProfilePage() {
   const handleCloseDeleteModal = () => {
     if (deletingAccount) return;
     setDeleteModalOpen(false);
-    setDeleteError(null);
     deleteForm.reset();
   };
 
@@ -183,7 +182,13 @@ export function ProfilePage() {
       endSession();
       navigate('/login', { replace: true, state: null });
     } catch (err) {
-      setDeleteError(extractApiError(err, 'Failed to delete account'));
+      const apiError = extractApiError(err, 'Failed to delete account');
+      setDeleteError(apiError);
+      notifications.show({
+        title: 'Unable to delete account',
+        message: apiError.message,
+        color: 'red',
+      });
     } finally {
       setDeletingAccount(false);
     }
@@ -318,6 +323,7 @@ export function ProfilePage() {
                 <Title order={4} c="red">
                   Delete Account
                 </Title>
+                <ErrorAlert error={deleteError} onClose={() => setDeleteError(null)} />
                 <Text size="sm" c="dimmed">
                   Permanently delete your account and revoke all active sessions. This action cannot
                   be undone.
