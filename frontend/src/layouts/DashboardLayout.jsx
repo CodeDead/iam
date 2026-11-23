@@ -82,7 +82,7 @@ export function DashboardLayout() {
 
             <Menu shadow="md" width={220} position="bottom-end">
               <Menu.Target>
-                <UnstyledButton aria-label="Account menu">
+                <UnstyledButton aria-label="Account menu" style={{ cursor: 'pointer' }}>
                   <Group gap="xs">
                     <Avatar color="indigo" radius="xl" size="sm">
                       {initials}
