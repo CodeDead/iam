@@ -1,6 +1,6 @@
 services:
   mongodb:
-    image: mongo:8
+    image: mongo:9
     container_name: auth-mongodb
     restart: unless-stopped
     command: ["mongod", "--config", "/etc/mongod.dev.conf"]
@@ -20,10 +20,10 @@ services:
         }
         if (!db.hello().isWritablePrimary) { quit(1); }
         "
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 10
-      start_period: 10s
+      retries: 15
+      start_period: 5s
 
   backend:
     build:

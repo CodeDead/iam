@@ -39,7 +39,7 @@ Never bake PEM keys into Docker images or commit them to source control. Mount t
 Multi-document ACID transactions (used for atomic refresh-token rotation) require a MongoDB Replica Set (minimum 3 nodes recommended in production: 1 primary + 2 secondaries).
 
 Checklist:
-- Pin an explicit MongoDB major release in production and follow MongoDB's sequential `featureCompatibilityVersion` upgrade procedure (`docker-compose.yml` pins `mongo:8` bound to `127.0.0.1:27017` for local development).
+- Pin an explicit MongoDB major release in production and follow MongoDB's sequential `featureCompatibilityVersion` upgrade procedure (`docker-compose.yml` pins `mongo:9` bound to `127.0.0.1:27017` for local development).
 - Enable MongoDB authentication (`--auth`) and SCRAM-SHA-256 credentials.
 - Enable TLS (`tls=true`) on the connection string.
 - Restrict network access to backend subnets only.

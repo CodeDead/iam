@@ -312,7 +312,7 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 docker compose up --build
 ```
 
-Uses `mongo:8` configured as a single-node replica set (`rs0`, bound to `127.0.0.1:27017`), the optimized Rust release container, and the Nginx frontend container:
+Uses `mongo:9` configured as a single-node replica set (`rs0`, bound to `127.0.0.1:27017`), the optimized Rust release container, and the Nginx frontend container:
 - **Frontend**: `http://localhost:5173`
 - **Backend API**: `http://localhost:8080/api/v1`
 - **Swagger UI**: `http://localhost:8080/swagger-ui/`
@@ -369,7 +369,7 @@ npm run build
 ### GitHub Actions Workflows
 
 Automated CI runs on pushes to `main` and `develop`, and on pull requests (`opened`, `synchronize`, `reopened`) targeting `main` or `develop`:
-- **[.github/workflows/backend-ci.yml](.github/workflows/backend-ci.yml)**: Verifies zero `mod.rs` files, runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and executes the full unit, API/RBAC, and live `mongo:8` replica-set (`rs0`) integration test suite.
+- **[.github/workflows/backend-ci.yml](.github/workflows/backend-ci.yml)**: Verifies zero `mod.rs` files, runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and executes the full unit, API/RBAC, and live `mongo:9` replica-set (`rs0`) integration test suite.
 - **[.github/workflows/frontend-ci.yml](.github/workflows/frontend-ci.yml)**: Verifies JavaScript-only source and zero TanStack dependencies, runs Prettier, ESLint (`--max-warnings=0`), Vitest, and the Vite production build.
 - **[.github/workflows/docker-publish.yml](.github/workflows/docker-publish.yml)**: Gates releases on backend/frontend lint, tests, and `npm audit --audit-level=high`, then builds and publishes backend and frontend container images to `ghcr.io` on pushes to `main`, `v*.*.*` tags, or manual dispatch (ready for [deploy/swarm-stack.yml](deploy/swarm-stack.yml) in Portainer).
 
