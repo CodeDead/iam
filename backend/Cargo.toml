@@ -10,37 +10,37 @@ default = []
 test-utils = []
 
 [dependencies]
-actix-cors = "0.7"
-actix-web = "4"
-argon2 = "0.6"
-async-trait = "0.1"
-base64 = "0.23"
-chrono = { version = "0.4", features = ["serde"] }
-config = "0.15"
-dotenvy = "0.15"
-ed25519-dalek = { version = "3", features = ["pkcs8", "pem", "rand_core"] }
-futures-util = "0.3"
-hex = "0.4"
-jsonwebtoken = { version = "12", features = ["rust_crypto"] }
-mongodb = "3"
-rand = "0.10"
+actix-cors = "0.7.2"
+actix-web = "4.20.0"
+argon2 = "0.6.0"
+async-trait = "0.1.92"
+base64 = "0.23.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+config = "0.15.27"
+dotenvy = "0.15.7"
+ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem", "rand_core"] }
+futures-util = "0.3.34"
+hex = "0.4.3"
+jsonwebtoken = { version = "12.0.0", features = ["rust_crypto"] }
+mongodb = "3.10.2"
+rand = "0.10.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.11"
-subtle = "2"
-thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-tracing = "0.1"
-tracing-actix-web = "0.7"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
-utoipa = { version = "6", features = ["actix_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "10", features = ["actix-web", "vendored"] }
-uuid = { version = "1", features = ["serde", "v4"] }
-validator = { version = "0.21", features = ["derive"] }
+sha2 = "0.11.2"
+subtle = "2.6.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1.44"
+tracing-actix-web = "0.7.26"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
+utoipa = { version = "6.0.0", features = ["actix_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "10.0.2", features = ["actix-web", "vendored"] }
+uuid = { version = "1.29.3", features = ["serde", "v4"] }
+validator = { version = "0.21.0", features = ["derive"] }
 
 [dev-dependencies]
 auth-backend = { path = ".", features = ["test-utils"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 
 [profile.release]
 opt-level = 3

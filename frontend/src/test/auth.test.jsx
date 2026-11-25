@@ -1,7 +1,8 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppRoutes } from '../routes/AppRoutes';
+import RouteErrorBoundary from '../components/common/RouteErrorBoundary';
+import AppRoutes from '../routes/AppRoutes';
 import { authService } from '../services/authService';
 import { dashboardService } from '../services/dashboardService';
 import { roleService } from '../services/roleService';
@@ -69,7 +70,7 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
 
     renderWithProviders(<AppRoutes />, { initialEntries: ['/login'], initialSession: null });
 
-    await user.type(screen.getByLabelText(/email address/i), 'alice@example.com');
+    await user.type(await screen.findByLabelText(/email address/i), 'alice@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'StrongPass123!');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
@@ -97,7 +98,7 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
 
     renderWithProviders(<AppRoutes />, { initialEntries: ['/login'], initialSession: null });
 
-    await user.type(screen.getByLabelText(/email address/i), 'bad@example.com');
+    await user.type(await screen.findByLabelText(/email address/i), 'bad@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'Wrong123!');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
@@ -122,7 +123,7 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
 
     renderWithProviders(<AppRoutes />, { initialEntries: ['/register'], initialSession: null });
 
-    await user.type(screen.getByLabelText(/first name/i), 'Jane');
+    await user.type(await screen.findByLabelText(/first name/i), 'Jane');
     await user.type(screen.getByLabelText(/last name/i), 'Doe');
     await user.type(screen.getByLabelText(/email address/i), 'jane@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'StrongPass123!');
@@ -269,5 +270,37 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
       initialSession: null,
     });
     expect(await screen.findByRole('main')).toBeInTheDocument();
+  });
+
+  it('displays a recovery UI in RouteErrorBoundary when a route chunk fails and recovers on retry', async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let shouldThrow = true;
+
+    const FlakyRoute = () => {
+      if (shouldThrow) {
+        throw new Error('Failed to fetch dynamically imported module');
+      }
+      return <div>Recovered Route Content</div>;
+    };
+
+    try {
+      renderWithProviders(
+        <RouteErrorBoundary resetKey="/test">
+          <FlakyRoute />
+        </RouteErrorBoundary>
+      );
+
+      expect(
+        screen.getByRole('heading', { name: /unable to load this page/i })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /reload page/i })).toBeInTheDocument();
+
+      shouldThrow = false;
+      await user.click(screen.getByRole('button', { name: /try again/i }));
+      expect(await screen.findByText('Recovered Route Content')).toBeInTheDocument();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });

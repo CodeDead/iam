@@ -13,13 +13,13 @@ import {
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { Link, useNavigate } from 'react-router-dom';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { useAuth } from '../../hooks/useAuth';
 import { extractApiError } from '../../utils/errors';
 
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,128}$/;
 
-export function RegisterPage() {
+const RegisterPage = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
   const [accountType, setAccountType] = useState('personal');
@@ -175,4 +175,6 @@ export function RegisterPage() {
       </Text>
     </Stack>
   );
-}
+};
+
+export default RegisterPage;

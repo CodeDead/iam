@@ -18,10 +18,10 @@ import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { IconBuilding, IconTrash } from '@tabler/icons-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
-import { PermissionGuard } from '../../components/common/PermissionGuard';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
+import PermissionGuard from '../../components/common/PermissionGuard';
+import StatusBadge from '../../components/common/StatusBadge';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import { profileService } from '../../services/profileService';
@@ -30,7 +30,7 @@ import { formatDateTime } from '../../utils/formatters';
 
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,128}$/;
 
-export function ProfilePage() {
+const ProfilePage = () => {
   const { user, permissions, updateUser, logout, endSession } = useAuth();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const navigate = useNavigate();
@@ -94,7 +94,7 @@ export function ProfilePage() {
         const fresh = await profileService.getProfile();
         if (active && fresh) {
           updateUser(fresh);
-          profileForm.setValues({
+          const hydratedValues = {
             first_name: fresh.first_name || '',
             last_name: fresh.last_name || '',
             email: fresh.email || '',
@@ -102,7 +102,9 @@ export function ProfilePage() {
             job_title: fresh.profile?.job_title || '',
             department: fresh.profile?.department || '',
             bio: fresh.profile?.bio || '',
-          });
+          };
+          profileForm.setValues(hydratedValues);
+          profileForm.resetDirty(hydratedValues);
         }
       } catch (err) {
         if (active) setProfileError(extractApiError(err, 'Failed to load profile'));
@@ -430,4 +432,6 @@ export function ProfilePage() {
       </Modal>
     </Stack>
   );
-}
+};
+
+export default ProfilePage;

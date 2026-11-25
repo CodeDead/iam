@@ -8,7 +8,7 @@ import {
 } from '../services/api';
 import { AuthContext } from './contextInstances';
 
-export function AuthProvider({ children, initialSession = null, skipRestore = false }) {
+const AuthProvider = ({ children, initialSession = null, skipRestore = false }) => {
   const [user, setUser] = useState(initialSession?.user || null);
   const [permissions, setPermissions] = useState(initialSession?.permissions || []);
   const shouldRestoreOnMount = !initialSession && !skipRestore && Boolean(getCsrfToken());
@@ -131,4 +131,6 @@ export function AuthProvider({ children, initialSession = null, skipRestore = fa
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
+};
+
+export default AuthProvider;

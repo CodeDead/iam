@@ -11,10 +11,12 @@ import {
   useComputedColorScheme,
   useMantineColorScheme,
 } from '@mantine/core';
+import { Suspense } from 'react';
 import { IconMoon, IconShieldCheck, IconSun } from '@tabler/icons-react';
 import { Outlet } from 'react-router-dom';
+import RouteFallback from '../components/common/RouteFallback';
 
-export function AuthLayout() {
+const AuthLayout = () => {
   const { setColorScheme } = useMantineColorScheme();
   const computedColorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
 
@@ -45,10 +47,14 @@ export function AuthLayout() {
             </Text>
           </Group>
           <Paper withBorder shadow="md" p="xl" radius="md">
-            <Outlet />
+            <Suspense fallback={<RouteFallback minHeight="240px" />}>
+              <Outlet />
+            </Suspense>
           </Paper>
         </Container>
       </Center>
     </Box>
   );
-}
+};
+
+export default AuthLayout;

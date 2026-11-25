@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -36,9 +36,9 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { Link } from 'react-router-dom';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
-import { PermissionGuard } from '../../components/common/PermissionGuard';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
+import PermissionGuard from '../../components/common/PermissionGuard';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import { dashboardService } from '../../services/dashboardService';
@@ -50,13 +50,11 @@ import {
   formatUserName,
   getMemberStatusColor,
 } from '../../utils/formatters';
-import {
-  ActivityTrendChart,
-  OrganisationDistributionCard,
-  ResourceBreakdownCard,
-  RoleDistributionCard,
-  UserStatusDonutChart,
-} from './DashboardCharts';
+import ActivityTrendChart from './ActivityTrendChart';
+import OrganisationDistributionCard from './OrganisationDistributionCard';
+import ResourceBreakdownCard from './ResourceBreakdownCard';
+import RoleDistributionCard from './RoleDistributionCard';
+import UserStatusDonutChart from './UserStatusDonutChart';
 
 function getKpiColSpan(index, total) {
   switch (total) {
@@ -79,7 +77,7 @@ function getKpiColSpan(index, total) {
   }
 }
 
-function StatCard({ label, value, subtitle, icon: Icon, color }) {
+const StatCard = ({ label, value, subtitle, icon: Icon, color }) => {
   return (
     <Paper withBorder p="md" radius="md" h="100%">
       <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -100,7 +98,7 @@ function StatCard({ label, value, subtitle, icon: Icon, color }) {
       </Group>
     </Paper>
   );
-}
+};
 
 function getAuditBadgeColor(action = '') {
   if (action.endsWith('deleted') || action.includes('reused') || action.endsWith('_failed')) {
@@ -141,16 +139,25 @@ function saveDismissedReuseKey(userId, value) {
   }
 }
 
-export function DashboardPage() {
+const DashboardPage = () => {
   const { user, permissions } = useAuth();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, hasAnyPermission } = usePermissions();
+  const canViewAccessSummary = hasAnyPermission(['roles.read', 'permissions.read']);
+  const hasGlobalStats = hasAnyPermission([
+    'users.read',
+    'organisations.read',
+    'roles.read',
+    'permissions.read',
+    'audit_logs.read',
+  ]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [busyInvites, setBusyInvites] = useState({});
   const [dismissedByUser, setDismissedByUser] = useState({});
-  const activeDismissedKey = dismissedByUser[user?.id || ''] ?? readDismissedReuseKey(user?.id);
+  const storedDismissedKey = useMemo(() => readDismissedReuseKey(user?.id), [user?.id]);
+  const activeDismissedKey = dismissedByUser[user?.id || ''] ?? storedDismissedKey;
 
   const setInviteBusy = useCallback((orgId, action) => {
     setBusyInvites((prev) => {
@@ -422,7 +429,11 @@ export function DashboardPage() {
     <Stack gap="lg">
       <PageHeader
         title={`Welcome, ${formatUserName(user) || user?.email}`}
-        description="Real-time overview of your identity security posture, access control, and activity"
+        description={
+          canViewAccessSummary || hasGlobalStats
+            ? 'Real-time overview of your identity security posture, access control, and activity'
+            : 'Overview of your active sessions, organisations, and quick navigation'
+        }
         actions={
           <Button
             variant="default"
@@ -522,7 +533,7 @@ export function DashboardPage() {
         )}
       </PermissionGuard>
 
-      {loading ? (
+      {loading && !stats ? (
         <>
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -668,9 +679,13 @@ export function DashboardPage() {
         <Stack gap="sm">
           <Group justify="space-between" align="center" wrap="wrap" gap="sm">
             <div>
-              <Title order={4}>Your Access &amp; Quick Navigation</Title>
+              <Title order={4}>
+                {canViewAccessSummary ? 'Your Access & Quick Navigation' : 'Quick Navigation'}
+              </Title>
               <Text size="xs" c="dimmed">
-                Assigned roles, effective permissions, and authorized areas
+                {canViewAccessSummary
+                  ? 'Assigned roles, effective permissions, and authorized areas'
+                  : 'Quick access to your available areas'}
               </Text>
             </div>
             <Group gap="xs" wrap="wrap">
@@ -741,57 +756,68 @@ export function DashboardPage() {
             </Group>
           </Group>
 
-          <Group gap="xs" mt="xs">
-            {(user?.roles || []).map((role) => (
-              <Badge key={role.id} color="indigo" variant="filled">
-                {role.name}
-              </Badge>
-            ))}
-            {stats && globalKpiCards.length > 0 && (
-              <Badge variant="light" color="cyan" leftSection={<IconDevices size={12} />}>
-                Your active sessions: {stats.my_active_sessions}
-              </Badge>
-            )}
-            {user?.last_login_at && (
-              <Badge variant="light" color="gray">
-                Last sign-in: {formatDateTime(user.last_login_at)}
-              </Badge>
-            )}
-          </Group>
-
-          {stats?.my_organisations?.length > 0 && (
+          {(canViewAccessSummary || globalKpiCards.length > 0) && (
             <>
-              <Text size="sm" c="dimmed" mt="xs">
-                Your organisations ({stats.my_organisations.length}):
-              </Text>
-              <Group gap="xs">
-                {stats.my_organisations.map((org) => (
-                  <Badge
-                    key={org.id}
-                    variant="light"
-                    color={getMemberStatusColor(org.status)}
-                    leftSection={<IconBuilding size={12} />}
-                  >
-                    {org.name} ({capitalize(org.role || 'member')} · {capitalize(org.status)} ·{' '}
-                    {org.member_count} {org.member_count === 1 ? 'member' : 'members'})
+              <Group gap="xs" mt="xs">
+                {canViewAccessSummary &&
+                  (user?.roles || []).map((role) => (
+                    <Badge key={role.id} color="indigo" variant="filled">
+                      {role.name}
+                    </Badge>
+                  ))}
+                {stats && globalKpiCards.length > 0 && (
+                  <Badge variant="light" color="cyan" leftSection={<IconDevices size={12} />}>
+                    Your active sessions: {stats.my_active_sessions}
                   </Badge>
-                ))}
+                )}
+                {user?.last_login_at && (
+                  <Badge variant="light" color="gray">
+                    Last sign-in: {formatDateTime(user.last_login_at)}
+                  </Badge>
+                )}
               </Group>
+
+              {stats?.my_organisations?.length > 0 && (
+                <>
+                  <Text size="sm" c="dimmed" mt="xs">
+                    Your organisations ({stats.my_organisations.length}):
+                  </Text>
+                  <Group gap="xs">
+                    {stats.my_organisations.map((org) => (
+                      <Badge
+                        key={org.id}
+                        variant="light"
+                        color={getMemberStatusColor(org.status)}
+                        leftSection={<IconBuilding size={12} />}
+                      >
+                        {org.name} ({capitalize(org.role || 'member')} · {capitalize(org.status)} ·{' '}
+                        {org.member_count} {org.member_count === 1 ? 'member' : 'members'})
+                      </Badge>
+                    ))}
+                  </Group>
+                </>
+              )}
+
+              {canViewAccessSummary && (
+                <>
+                  <Text size="sm" c="dimmed" mt="xs">
+                    Effective permissions ({permissions.length}):
+                  </Text>
+                  <Group gap="xs">
+                    {permissions.map((perm) => (
+                      <Badge key={perm} variant="light" color="gray">
+                        {perm}
+                      </Badge>
+                    ))}
+                  </Group>
+                </>
+              )}
             </>
           )}
-
-          <Text size="sm" c="dimmed" mt="xs">
-            Effective permissions ({permissions.length}):
-          </Text>
-          <Group gap="xs">
-            {permissions.map((perm) => (
-              <Badge key={perm} variant="light" color="gray">
-                {perm}
-              </Badge>
-            ))}
-          </Group>
         </Stack>
       </Card>
     </Stack>
   );
-}
+};
+
+export default DashboardPage;

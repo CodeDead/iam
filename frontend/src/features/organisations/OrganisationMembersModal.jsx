@@ -17,7 +17,7 @@ import {
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconLock, IconSearch, IconTrash, IconUserPlus, IconX } from '@tabler/icons-react';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import { organisationService } from '../../services/organisationService';
@@ -57,13 +57,13 @@ const FILTER_STATUS_OPTIONS = [
   { value: 'suspended', label: 'Suspended' },
 ];
 
-export function OrganisationMembersModal({
+const OrganisationMembersModal = ({
   opened,
   onClose,
   organisation,
   actorOrgRole = null,
   onUpdated,
-}) {
+}) => {
   const { user: currentUser } = useAuth();
   const { hasPermission } = usePermissions();
   const hasMembersLoaded = Array.isArray(organisation?.members);
@@ -533,4 +533,6 @@ export function OrganisationMembersModal({
       </Stack>
     </Modal>
   );
-}
+};
+
+export default OrganisationMembersModal;

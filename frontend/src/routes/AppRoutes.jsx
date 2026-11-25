@@ -1,82 +1,95 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { AuditLogsPage } from '../features/audit/AuditLogsPage';
-import { ForbiddenPage } from '../features/auth/ForbiddenPage';
-import { LoginPage } from '../features/auth/LoginPage';
-import { RegisterPage } from '../features/auth/RegisterPage';
-import { UnauthorizedPage } from '../features/auth/UnauthorizedPage';
-import { DashboardPage } from '../features/dashboard/DashboardPage';
-import { OrganisationsPage } from '../features/organisations/OrganisationsPage';
-import { PermissionsPage } from '../features/permissions/PermissionsPage';
-import { ProfilePage } from '../features/profile/ProfilePage';
-import { RolesPage } from '../features/roles/RolesPage';
-import { UsersPage } from '../features/users/UsersPage';
-import { AuthLayout } from '../layouts/AuthLayout';
-import { DashboardLayout } from '../layouts/DashboardLayout';
-import { ProtectedRoute } from './ProtectedRoute';
+import { lazy, Suspense } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import RouteErrorBoundary from '../components/common/RouteErrorBoundary';
+import RouteFallback from '../components/common/RouteFallback';
+import ProtectedRoute from './ProtectedRoute';
 
-export function AppRoutes() {
+const AuthLayout = lazy(() => import('../layouts/AuthLayout'));
+const DashboardLayout = lazy(() => import('../layouts/DashboardLayout'));
+
+const AuditLogsPage = lazy(() => import('../features/audit/AuditLogsPage'));
+const ForbiddenPage = lazy(() => import('../features/auth/ForbiddenPage'));
+const LoginPage = lazy(() => import('../features/auth/LoginPage'));
+const RegisterPage = lazy(() => import('../features/auth/RegisterPage'));
+const UnauthorizedPage = lazy(() => import('../features/auth/UnauthorizedPage'));
+const DashboardPage = lazy(() => import('../features/dashboard/DashboardPage'));
+const OrganisationsPage = lazy(() => import('../features/organisations/OrganisationsPage'));
+const PermissionsPage = lazy(() => import('../features/permissions/PermissionsPage'));
+const ProfilePage = lazy(() => import('../features/profile/ProfilePage'));
+const RolesPage = lazy(() => import('../features/roles/RolesPage'));
+const UsersPage = lazy(() => import('../features/users/UsersPage'));
+
+const AppRoutes = () => {
+  const location = useLocation();
+
   return (
-    <Routes>
-      <Route element={<AuthLayout />}>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-      </Route>
+    <RouteErrorBoundary resetKey={location.pathname}>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route element={<AuthLayout />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+          </Route>
 
-      <Route path="/unauthorized" element={<UnauthorizedPage />} />
-      <Route path="/forbidden" element={<ForbiddenPage />} />
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
+          <Route path="/forbidden" element={<ForbiddenPage />} />
 
-      <Route
-        element={
-          <ProtectedRoute>
-            <DashboardLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<DashboardPage />} />
-        <Route
-          path="/users"
-          element={
-            <ProtectedRoute requiredPermission="users.read">
-              <UsersPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/organisations" element={<OrganisationsPage />} />
-        <Route
-          path="/roles"
-          element={
-            <ProtectedRoute requiredPermission="roles.read">
-              <RolesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/permissions"
-          element={
-            <ProtectedRoute requiredPermission="permissions.read">
-              <PermissionsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/audit-logs"
-          element={
-            <ProtectedRoute requiredPermission="audit_logs.read">
-              <AuditLogsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute requiredPermission="profile.read">
-              <ProfilePage />
-            </ProtectedRoute>
-          }
-        />
-      </Route>
+          <Route
+            element={
+              <ProtectedRoute>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<DashboardPage />} />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute requiredPermission="users.read">
+                  <UsersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/organisations" element={<OrganisationsPage />} />
+            <Route
+              path="/roles"
+              element={
+                <ProtectedRoute requiredPermission="roles.read">
+                  <RolesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/permissions"
+              element={
+                <ProtectedRoute requiredPermission="permissions.read">
+                  <PermissionsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/audit-logs"
+              element={
+                <ProtectedRoute requiredPermission="audit_logs.read">
+                  <AuditLogsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute requiredPermission="profile.read">
+                  <ProfilePage />
+                </ProtectedRoute>
+              }
+            />
+          </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </RouteErrorBoundary>
   );
-}
+};
+
+export default AppRoutes;

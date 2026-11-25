@@ -3,8 +3,8 @@ import { ModalsProvider } from '@mantine/modals';
 import { Notifications } from '@mantine/notifications';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { AuthProvider } from '../contexts/AuthContext';
-import { PermissionProvider } from '../contexts/PermissionContext';
+import AuthProvider from '../contexts/AuthContext';
+import PermissionProvider from '../contexts/PermissionContext';
 import { theme } from '../theme';
 
 export function renderWithProviders(

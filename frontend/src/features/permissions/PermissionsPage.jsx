@@ -18,16 +18,16 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconEdit, IconPlus, IconSearch, IconShieldLock, IconTrash } from '@tabler/icons-react';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
-import { PermissionGuard } from '../../components/common/PermissionGuard';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
+import PermissionGuard from '../../components/common/PermissionGuard';
 import { usePermissions } from '../../hooks/usePermissions';
 import { permissionService } from '../../services/permissionService';
 import { extractApiError } from '../../utils/errors';
-import { PermissionFormModal } from './PermissionFormModal';
-import { PermissionRolesModal } from './PermissionRolesModal';
+import PermissionFormModal from './PermissionFormModal';
+import PermissionRolesModal from './PermissionRolesModal';
 
-export function PermissionsPage() {
+const PermissionsPage = () => {
   const { hasPermission } = usePermissions();
   const [data, setData] = useState({ items: [], total: 0, page: 1, total_pages: 1 });
   const [loading, setLoading] = useState(true);
@@ -247,4 +247,6 @@ export function PermissionsPage() {
       <PermissionRolesModal permission={rolesModalPerm} onClose={() => setRolesModalPerm(null)} />
     </Stack>
   );
-}
+};
+
+export default PermissionsPage;

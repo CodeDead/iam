@@ -18,8 +18,8 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { IconEye, IconRefresh, IconSearch } from '@tabler/icons-react';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
 import { auditService } from '../../services/auditService';
 import { extractApiError } from '../../utils/errors';
 import { formatDateTime } from '../../utils/formatters';
@@ -85,7 +85,7 @@ function getActionBadgeColor(action = '') {
   return 'indigo';
 }
 
-export function AuditLogsPage() {
+const AuditLogsPage = () => {
   const [data, setData] = useState({ items: [], total: 0, page: 1, total_pages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -326,4 +326,6 @@ export function AuditLogsPage() {
       </Modal>
     </Stack>
   );
-}
+};
+
+export default AuditLogsPage;

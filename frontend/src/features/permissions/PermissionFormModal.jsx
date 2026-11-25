@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { Button, Code, Group, Modal, Stack, Text, Textarea, TextInput } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { permissionService } from '../../services/permissionService';
 import { extractApiError } from '../../utils/errors';
 
 const SEGMENT_REGEX = /^[a-z][a-z0-9_]{0,63}$/;
 
-export function PermissionFormModal({ opened, onClose, permission, onSaved }) {
+const PermissionFormModal = ({ opened, onClose, permission, onSaved }) => {
   const isEditing = Boolean(permission);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -118,4 +118,6 @@ export function PermissionFormModal({ opened, onClose, permission, onSaved }) {
       </form>
     </Modal>
   );
-}
+};
+
+export default PermissionFormModal;

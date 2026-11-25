@@ -1,6 +1,11 @@
 node_modules/
 dist/
 .vite/
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/patches
+.pnp.*
 .env
 .env.*
 !.env.example

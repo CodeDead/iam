@@ -7,11 +7,13 @@ const STATUS_META = {
   pending_verification: { color: 'yellow', label: 'Pending Verification' },
 };
 
-export function StatusBadge({ status }) {
+const StatusBadge = ({ status }) => {
   const meta = STATUS_META[status] || { color: 'gray', label: status || 'Unknown' };
   return (
     <Badge color={meta.color} variant="light" radius="sm">
       {meta.label}
     </Badge>
   );
-}
+};
+
+export default StatusBadge;

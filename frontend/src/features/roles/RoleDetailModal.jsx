@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Badge, Divider, Group, Modal, Skeleton, Stack, Table, Text, Title } from '@mantine/core';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import StatusBadge from '../../components/common/StatusBadge';
 import { usePermissions } from '../../hooks/usePermissions';
 import { roleService } from '../../services/roleService';
 import { extractApiError } from '../../utils/errors';
 import { formatUserName } from '../../utils/formatters';
 
-export function RoleDetailModal({ roleId, onClose }) {
+const RoleDetailModal = ({ roleId, onClose }) => {
   const { hasPermission } = usePermissions();
   const [state, setState] = useState({ loadedId: null, role: null, users: [], error: null });
 
@@ -121,4 +121,6 @@ export function RoleDetailModal({ roleId, onClose }) {
       )}
     </Modal>
   );
-}
+};
+
+export default RoleDetailModal;

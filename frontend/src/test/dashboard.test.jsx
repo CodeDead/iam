@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DashboardPage } from '../features/dashboard/DashboardPage';
+import DashboardPage from '../features/dashboard/DashboardPage';
 import { dashboardService } from '../services/dashboardService';
 import { renderWithProviders } from './testUtils';
 
@@ -169,9 +169,12 @@ describe('DashboardPage', () => {
     expect(
       screen.getByRole('img', { name: /7-day audit activity bar chart showing 25 total events/i })
     ).toBeInTheDocument();
+    expect(screen.getByText(/your access & quick navigation/i)).toBeInTheDocument();
+    expect(screen.getByText(/effective permissions \(6\):/i)).toBeInTheDocument();
+    expect(screen.getByText(/your organisations \(1\):/i)).toBeInTheDocument();
   });
 
-  it('hides privileged cards, charts, and audit feed for standard users without admin permissions', async () => {
+  it('hides privileged cards, charts, audit feed, and access summary for standard users', async () => {
     dashboardService.getStats.mockResolvedValue({
       my_active_sessions: 1,
       my_organisations: [
@@ -190,15 +193,48 @@ describe('DashboardPage', () => {
     renderWithProviders(<DashboardPage />, { initialSession: standardUserSession });
 
     expect(await screen.findByText(/your active sessions/i)).toBeInTheDocument();
-    expect(screen.getByText(/your organisations \(1\):/i)).toBeInTheDocument();
-    expect(screen.getByText(/acme inc\./i)).toBeInTheDocument();
-    expect(screen.getByText(/your access & quick navigation/i)).toBeInTheDocument();
+    expect(screen.getByText(/your organisations/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^quick navigation$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /organisations/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /my profile/i })).toBeInTheDocument();
+    expect(screen.queryByText(/your access & quick navigation/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/effective permissions/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/your organisations \(1\):/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/7-day security & audit activity/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/user account status/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/top organisations by members/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/role coverage & distribution/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/permissions by resource/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent security & audit activity/i)).not.toBeInTheDocument();
+  });
+
+  it('retains personal sessions and organisations summary for auditors lacking roles/permissions read', async () => {
+    const auditorSession = {
+      user: {
+        id: 'u3',
+        first_name: 'Audit',
+        last_name: 'Reviewer',
+        email: 'auditor@example.com',
+        status: 'active',
+        last_login_at: '2026-11-22T14:00:00Z',
+        roles: [{ id: 'r5', name: 'Compliance Auditor' }],
+      },
+      permissions: ['audit_logs.read', 'profile.read'],
+    };
+
+    dashboardService.getStats.mockResolvedValue({
+      my_active_sessions: 3,
+      my_organisations: fullStatsPayload.my_organisations,
+      audit: fullStatsPayload.audit,
+    });
+
+    renderWithProviders(<DashboardPage />, { initialSession: auditorSession });
+
+    expect(await screen.findByText(/7-day security & audit activity/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^quick navigation$/i })).toBeInTheDocument();
+    expect(screen.getByText(/your active sessions: 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/your organisations \(1\):/i)).toBeInTheDocument();
+    expect(screen.queryByText(/effective permissions/i)).not.toBeInTheDocument();
   });
 
   it('allows dismissing the 24h token reuse alert and re-shows it when a newer event occurs', async () => {

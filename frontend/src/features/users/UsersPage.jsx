@@ -29,19 +29,20 @@ import {
   IconUserCheck,
   IconUserOff,
 } from '@tabler/icons-react';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
-import { PermissionGuard } from '../../components/common/PermissionGuard';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
+import PermissionGuard from '../../components/common/PermissionGuard';
+import StatusBadge from '../../components/common/StatusBadge';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import { roleService } from '../../services/roleService';
 import { userService } from '../../services/userService';
 import { extractApiError } from '../../utils/errors';
 import { formatDateTime, formatUserName } from '../../utils/formatters';
-import { AssignRolesModal } from './AssignRolesModal';
-import { UserDetailDrawer } from './UserDetailDrawer';
-import { UserFormModal } from './UserFormModal';
+import { fetchAllPages } from '../../utils/pagination';
+import AssignRolesModal from './AssignRolesModal';
+import UserDetailDrawer from './UserDetailDrawer';
+import UserFormModal from './UserFormModal';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -51,7 +52,7 @@ const STATUS_OPTIONS = [
   { value: 'pending_verification', label: 'Pending Verification' },
 ];
 
-export function UsersPage() {
+const UsersPage = () => {
   const { user: currentUser } = useAuth();
   const { hasPermission } = usePermissions();
 
@@ -106,10 +107,9 @@ export function UsersPage() {
   useEffect(() => {
     if (!hasPermission('roles.read')) return;
     let active = true;
-    roleService
-      .list({ page: 1, page_size: 100 })
-      .then((res) => {
-        if (active) setRoles(res.items || []);
+    fetchAllPages((catalogPage) => roleService.list({ page: catalogPage, page_size: 100 }))
+      .then((items) => {
+        if (active) setRoles(items);
       })
       .catch((err) => {
         if (active) setError(extractApiError(err, 'Failed to load roles catalog'));
@@ -410,4 +410,6 @@ export function UsersPage() {
       />
     </Stack>
   );
-}
+};
+
+export default UsersPage;

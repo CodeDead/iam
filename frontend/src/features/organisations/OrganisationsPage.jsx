@@ -30,17 +30,17 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { useSearchParams } from 'react-router-dom';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import { organisationService } from '../../services/organisationService';
 import { extractApiError } from '../../utils/errors';
 import { capitalize, formatDateTime, getMemberStatusColor } from '../../utils/formatters';
-import { OrganisationFormModal } from './OrganisationFormModal';
-import { OrganisationMembersModal } from './OrganisationMembersModal';
+import OrganisationFormModal from './OrganisationFormModal';
+import OrganisationMembersModal from './OrganisationMembersModal';
 
-export function OrganisationsPage() {
+const OrganisationsPage = () => {
   const { user: currentUser } = useAuth();
   const { hasPermission } = usePermissions();
   const [searchParams] = useSearchParams();
@@ -653,4 +653,6 @@ export function OrganisationsPage() {
       />
     </Stack>
   );
-}
+};
+
+export default OrganisationsPage;

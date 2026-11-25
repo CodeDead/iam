@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Anchor, Button, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { useAuth } from '../../hooks/useAuth';
 import { extractApiError } from '../../utils/errors';
 
@@ -34,7 +34,7 @@ function resolvePostLoginRedirect(fromPath, permissions = []) {
   return fromPath;
 }
 
-export function LoginPage() {
+const LoginPage = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -115,4 +115,6 @@ export function LoginPage() {
       </Text>
     </Stack>
   );
-}
+};
+
+export default LoginPage;

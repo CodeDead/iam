@@ -2,19 +2,12 @@ import { useState } from 'react';
 import { Button, Divider, Group, Modal, Stack, Text, Textarea, TextInput } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PermissionMatrix } from '../../components/forms/PermissionMatrix';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PermissionMatrix from '../../components/forms/PermissionMatrix';
 import { roleService } from '../../services/roleService';
 import { extractApiError } from '../../utils/errors';
 
-export function RoleFormModal({
-  opened,
-  onClose,
-  role,
-  allPermissions = [],
-  onSaved,
-  onPartialSaved,
-}) {
+const RoleFormModal = ({ opened, onClose, role, allPermissions = [], onSaved, onPartialSaved }) => {
   const isEditing = Boolean(role);
   const [selectedPermissionIds, setSelectedPermissionIds] = useState(role?.permission_ids || []);
   const [submitting, setSubmitting] = useState(false);
@@ -121,4 +114,6 @@ export function RoleFormModal({
       </form>
     </Modal>
   );
-}
+};
+
+export default RoleFormModal;

@@ -2,12 +2,12 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { Notifications } from '@mantine/notifications';
 import { BrowserRouter } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
-import { PermissionProvider } from './contexts/PermissionContext';
-import { AppRoutes } from './routes/AppRoutes';
+import AuthProvider from './contexts/AuthContext';
+import PermissionProvider from './contexts/PermissionContext';
+import AppRoutes from './routes/AppRoutes';
 import { theme } from './theme';
 
-export function App() {
+const App = () => {
   return (
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <Notifications position="top-right" />
@@ -22,6 +22,6 @@ export function App() {
       </ModalsProvider>
     </MantineProvider>
   );
-}
+};
 
 export default App;
