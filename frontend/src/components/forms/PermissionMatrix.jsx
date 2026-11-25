@@ -1,12 +1,12 @@
 import { Checkbox, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import { capitalize, groupPermissionsByResource } from '../../utils/formatters';
 
-export function PermissionMatrix({
+const PermissionMatrix = ({
   allPermissions = [],
   selectedIds = [],
   onChange,
   disabled = false,
-}) {
+}) => {
   const groups = groupPermissionsByResource(allPermissions);
   const selectedSet = new Set(selectedIds);
 
@@ -81,4 +81,6 @@ export function PermissionMatrix({
       })}
     </SimpleGrid>
   );
-}
+};
+
+export default PermissionMatrix;

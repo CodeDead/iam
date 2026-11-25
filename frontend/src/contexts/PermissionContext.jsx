@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { PermissionContext } from './contextInstances';
 
-export function PermissionProvider({ children }) {
+const PermissionProvider = ({ children }) => {
   const { permissions } = useAuth();
 
   const permissionSet = useMemo(() => new Set(permissions || []), [permissions]);
@@ -42,4 +42,6 @@ export function PermissionProvider({ children }) {
   );
 
   return <PermissionContext.Provider value={value}>{children}</PermissionContext.Provider>;
-}
+};
+
+export default PermissionProvider;

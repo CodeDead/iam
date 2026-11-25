@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Button, Group, Modal, MultiSelect, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { userService } from '../../services/userService';
 import { extractApiError } from '../../utils/errors';
 
-export function AssignRolesModal({ user, availableRoles = [], onClose, onSaved }) {
+const AssignRolesModal = ({ user, availableRoles = [], onClose, onSaved }) => {
   const [selectedRoleIds, setSelectedRoleIds] = useState((user?.roles || []).map((r) => r.id));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -63,4 +63,6 @@ export function AssignRolesModal({ user, availableRoles = [], onClose, onSaved }
       </Stack>
     </Modal>
   );
-}
+};
+
+export default AssignRolesModal;

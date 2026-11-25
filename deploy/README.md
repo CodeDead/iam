@@ -9,7 +9,7 @@ This directory contains production deployment templates for running **CodeDead I
 
 ## Deployment Steps
 
-1. **Publish images**: Push to `main` or tag `v*.*.*` to trigger [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml), which verifies backend & frontend lint/tests/`npm audit` before publishing `ghcr.io/<owner>/<repo>-backend` and `ghcr.io/<owner>/<repo>-frontend` (pin production deployments to semver or `sha-*` tags rather than `:latest`).
+1. **Publish images**: Push to `main` or tag `v*.*.*` to trigger [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml), which verifies backend & frontend lint/tests/`yarn npm audit` before publishing `ghcr.io/<owner>/<repo>-backend` and `ghcr.io/<owner>/<repo>-frontend` (pin production deployments to semver or `sha-*` tags rather than `:latest`).
 2. **Generate Ed25519 keys & create Swarm secrets**:
    ```bash
    openssl genpkey -algorithm ED25519 -out jwt_private.pem

@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { label: 'My Profile', path: '/profile', icon: IconUserCircle, permission: 'profile.read' },
 ];
 
-export function SidebarNav({ onNavigate }) {
+const SidebarNav = ({ onNavigate }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
@@ -57,4 +57,6 @@ export function SidebarNav({ onNavigate }) {
       })}
     </Stack>
   );
-}
+};
+
+export default SidebarNav;

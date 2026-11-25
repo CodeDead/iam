@@ -2,7 +2,7 @@ import { Button, Center, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/c
 import { IconShieldOff } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 
-export function ForbiddenPage() {
+const ForbiddenPage = () => {
   const navigate = useNavigate();
   return (
     <Center component="main" mih="70vh">
@@ -22,4 +22,6 @@ export function ForbiddenPage() {
       </Paper>
     </Center>
   );
-}
+};
+
+export default ForbiddenPage;

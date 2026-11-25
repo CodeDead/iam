@@ -12,20 +12,20 @@ import {
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { userService } from '../../services/userService';
 import { extractApiError } from '../../utils/errors';
 
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,128}$/;
 
-export function UserFormModal({
+const UserFormModal = ({
   opened,
   onClose,
   user,
   availableRoles = [],
   canAssignRoles = false,
   onSaved,
-}) {
+}) => {
   const isEditing = Boolean(user);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -160,4 +160,6 @@ export function UserFormModal({
       </form>
     </Modal>
   );
-}
+};
+
+export default UserFormModal;

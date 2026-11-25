@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Anchor, Badge, Divider, Drawer, Group, Skeleton, Stack, Text, Title } from '@mantine/core';
 import { Link } from 'react-router-dom';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import StatusBadge from '../../components/common/StatusBadge';
 import { usePermissions } from '../../hooks/usePermissions';
 import { userService } from '../../services/userService';
 import { extractApiError } from '../../utils/errors';
@@ -13,7 +13,7 @@ import {
   getMemberStatusColor,
 } from '../../utils/formatters';
 
-export function UserDetailDrawer({ userId, onClose }) {
+const UserDetailDrawer = ({ userId, onClose }) => {
   const { hasPermission } = usePermissions();
   const canReadOrgs = hasPermission('organisations.read');
   const [state, setState] = useState({
@@ -188,4 +188,6 @@ export function UserDetailDrawer({ userId, onClose }) {
       )}
     </Drawer>
   );
-}
+};
+
+export default UserDetailDrawer;

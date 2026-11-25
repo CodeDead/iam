@@ -1,6 +1,6 @@
 import { Group, Stack, Text, Title } from '@mantine/core';
 
-export function PageHeader({ title, description, actions }) {
+const PageHeader = ({ title, description, actions }) => {
   return (
     <Group justify="space-between" align="flex-start" mb="lg" wrap="wrap">
       <Stack gap={4}>
@@ -14,4 +14,6 @@ export function PageHeader({ title, description, actions }) {
       {actions && <Group gap="sm">{actions}</Group>}
     </Group>
   );
-}
+};
+
+export default PageHeader;

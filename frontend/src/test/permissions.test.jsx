@@ -1,9 +1,9 @@
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PermissionGuard } from '../components/common/PermissionGuard';
-import { SidebarNav } from '../components/navigation/SidebarNav';
-import { PermissionsPage } from '../features/permissions/PermissionsPage';
-import { ProfilePage } from '../features/profile/ProfilePage';
+import PermissionGuard from '../components/common/PermissionGuard';
+import SidebarNav from '../components/navigation/SidebarNav';
+import PermissionsPage from '../features/permissions/PermissionsPage';
+import ProfilePage from '../features/profile/ProfilePage';
 import { permissionService } from '../services/permissionService';
 import { profileService } from '../services/profileService';
 import { renderWithProviders } from './testUtils';

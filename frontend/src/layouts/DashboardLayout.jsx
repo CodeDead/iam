@@ -20,13 +20,15 @@ import {
   IconSun,
   IconUserCircle,
 } from '@tabler/icons-react';
+import { Suspense } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { SidebarNav } from '../components/navigation/SidebarNav';
+import RouteFallback from '../components/common/RouteFallback';
+import SidebarNav from '../components/navigation/SidebarNav';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatUserName } from '../utils/formatters';
 
-export function DashboardLayout() {
+const DashboardLayout = () => {
   const [opened, { toggle, close }] = useDisclosure();
   const { user, logout } = useAuth();
   const { hasPermission } = usePermissions();
@@ -124,8 +126,12 @@ export function DashboardLayout() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Outlet />
+        <Suspense fallback={<RouteFallback minHeight="50vh" />}>
+          <Outlet />
+        </Suspense>
       </AppShell.Main>
     </AppShell>
   );
-}
+};
+
+export default DashboardLayout;

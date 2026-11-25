@@ -38,9 +38,9 @@ The repository contains two independently structured projects communicating excl
 
 ### Frontend Highlights
 
-- **Pure JavaScript (ES6+)** with React 19, React Router 7, Mantine UI 9, Vite 8, and Axios — no TypeScript and no TanStack packages.
+- **Pure JavaScript (ES6+)** with React 19, React Router 7 (lazy-loaded route & layout chunks with `RouteFallback` and `RouteErrorBoundary`), Mantine UI 9, Vite 8, Yarn Berry (`yarn@4.19.0`), and Axios — no TypeScript and no TanStack packages.
 - **Secure Token Lifecycle**: Access tokens live exclusively in JS memory (never `localStorage`), refresh tokens live in `HttpOnly` cookies, concurrent `401` responses coalesce into a single `/api/v1/auth/refresh` request, and open browser tabs coordinate token refresh & logout via `navigator.locks` + `BroadcastChannel` to prevent multi-tab refresh-token reuse races.
-- **RBAC UX & Security Dashboard**: Navigation links, routes, Organisations (`/organisations`), Audit Logs (`/audit-logs`), profile Account Access Summary, self-service Personal & Organisation account registration, and the interactive Dashboard (KPI cards, 7-day stacked SVG security/audit activity chart, user status donut chart, top organisations, role & permission distribution bars, dismissible 24h token-reuse alert banner, recent audit feed, active sessions, and user organisation badges) are strictly guarded by user permissions both server-side and client-side; logging out clears route history state so a subsequent user never inherits a restricted redirect.
+- **RBAC UX & Security Dashboard**: Navigation links, lazy-loaded routes, Organisations (`/organisations`), Audit Logs (`/audit-logs`), profile Account Access Summary, self-service Personal & Organisation account registration, and the interactive Dashboard (KPI cards, 7-day stacked SVG security/audit activity chart, user status donut chart, top organisations, role & permission distribution bars, dismissible 24h token-reuse alert banner, recent audit feed, and quick navigation—with RBAC role/permission summaries gated to `roles.read` / `permissions.read`) are strictly guarded by user permissions both server-side and client-side; logging out clears route history state so a subsequent user never inherits a restricted redirect.
 - **UX, Resilience & Accessibility**: Automatic OS color scheme detection (`defaultColorScheme="auto"`) with manual toggle, offline/timeout/gateway/non-JSON API error handling (`api.js` + `nginx.conf` `/api/` `503` JSON fallback), semantic `<main>` landmarks across all routes, meta description, and `public/robots.txt`.
 
 ---
@@ -104,7 +104,10 @@ The repository contains two independently structured projects communicating excl
 └── frontend/
     ├── README.md
     ├── package.json
-    ├── package-lock.json
+    ├── yarn.lock
+    ├── .yarnrc.yml
+    ├── .yarn/releases/yarn-4.19.0.cjs
+    ├── .gitignore
     ├── Dockerfile
     ├── .dockerignore
     ├── nginx.conf
@@ -125,7 +128,7 @@ The repository contains two independently structured projects communicating excl
         ├── layouts/{AuthLayout,DashboardLayout}.jsx
         ├── routes/{AppRoutes,ProtectedRoute}.jsx
         ├── features/{audit,auth,dashboard,organisations,profile,users,roles,permissions}/
-        ├── utils/{cookies,errors,formatters}.js
+        ├── utils/{cookies,errors,formatters,pagination}.js
         └── test/
 ```
 
@@ -331,8 +334,8 @@ Uses `mongo:9` configured as a single-node replica set (`rs0`, bound to `127.0.0
    ```bash
    cd frontend
    cp .env.example .env
-   npm install
-   npm run dev
+   yarn install
+   yarn dev
    ```
 
 ### Option C: Production Docker Swarm / Portainer (MongoDB Atlas)
@@ -356,21 +359,21 @@ cargo build --release --locked
 MONGODB_TEST_URI=mongodb://localhost:27017 cargo test --locked --test mongodb_integration_tests -- --nocapture
 ```
 
-### Frontend (Node.js 26 / Vite 8 / Vitest 5)
+### Frontend (Node.js 26 / Yarn Berry 4 / Vite 8 / Vitest 5)
 
 ```bash
 cd frontend
-npm run format:check
-npm run lint -- --max-warnings=0
-npm test
-npm run build
+yarn format:check
+yarn lint --max-warnings=0
+yarn test
+yarn build
 ```
 
 ### GitHub Actions Workflows
 
 Automated CI runs on pushes to `main` and `develop`, and on pull requests (`opened`, `synchronize`, `reopened`) targeting `main` or `develop`:
 - **[.github/workflows/backend-ci.yml](.github/workflows/backend-ci.yml)**: Verifies zero `mod.rs` files, runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and executes the full unit, API/RBAC, and live `mongo:9` replica-set (`rs0`) integration test suite.
-- **[.github/workflows/frontend-ci.yml](.github/workflows/frontend-ci.yml)**: Verifies JavaScript-only source and zero TanStack dependencies, runs Prettier, ESLint (`--max-warnings=0`), Vitest, and the Vite production build.
-- **[.github/workflows/docker-publish.yml](.github/workflows/docker-publish.yml)**: Gates releases on backend/frontend lint, tests, and `npm audit --audit-level=high`, then builds and publishes backend and frontend container images to `ghcr.io` on pushes to `main`, `v*.*.*` tags, or manual dispatch (ready for [deploy/swarm-stack.yml](deploy/swarm-stack.yml) in Portainer).
+- **[.github/workflows/frontend-ci.yml](.github/workflows/frontend-ci.yml)**: Verifies JavaScript-only source and zero TanStack dependencies, installs with Yarn Berry (`--immutable`), and runs Prettier, ESLint (`--max-warnings=0`), Vitest, and the Vite production build.
+- **[.github/workflows/docker-publish.yml](.github/workflows/docker-publish.yml)**: Gates releases on backend/frontend lint, tests, and `yarn npm audit --all --severity high`, then builds and publishes backend and frontend container images to `ghcr.io` on pushes to `main`, `v*.*.*` tags, or manual dispatch (ready for [deploy/swarm-stack.yml](deploy/swarm-stack.yml) in Portainer).
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production hardening instructions.

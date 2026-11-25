@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { UsersPage } from '../features/users/UsersPage';
+import UsersPage from '../features/users/UsersPage';
 import { roleService } from '../services/roleService';
 import { userService } from '../services/userService';
 import { renderWithProviders } from './testUtils';

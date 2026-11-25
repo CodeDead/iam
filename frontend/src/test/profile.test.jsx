@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppRoutes } from '../routes/AppRoutes';
+import AppRoutes from '../routes/AppRoutes';
 import { profileService } from '../services/profileService';
 import { renderWithProviders } from './testUtils';
 

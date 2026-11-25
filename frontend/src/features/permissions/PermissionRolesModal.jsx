@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Badge, Code, Group, Modal, Skeleton, Stack, Text } from '@mantine/core';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { permissionService } from '../../services/permissionService';
 import { extractApiError } from '../../utils/errors';
 
-export function PermissionRolesModal({ permission, onClose }) {
+const PermissionRolesModal = ({ permission, onClose }) => {
   const [state, setState] = useState({ loadedId: null, roles: [], error: null });
   const permissionId = permission?.id || null;
 
@@ -82,4 +82,6 @@ export function PermissionRolesModal({ permission, onClose }) {
       </Stack>
     </Modal>
   );
-}
+};
+
+export default PermissionRolesModal;

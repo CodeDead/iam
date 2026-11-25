@@ -2,7 +2,7 @@ import { Button, Center, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/c
 import { IconLock } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 
-export function UnauthorizedPage() {
+const UnauthorizedPage = () => {
   const navigate = useNavigate();
   return (
     <Center component="main" mih="70vh">
@@ -20,4 +20,6 @@ export function UnauthorizedPage() {
       </Paper>
     </Center>
   );
-}
+};
+
+export default UnauthorizedPage;

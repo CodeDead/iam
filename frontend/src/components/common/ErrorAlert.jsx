@@ -2,7 +2,7 @@ import { Alert, List, Text } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { formatValidationDetails } from '../../utils/errors';
 
-export function ErrorAlert({ error, title = 'Error', onClose }) {
+const ErrorAlert = ({ error, title = 'Error', onClose }) => {
   if (!error) return null;
 
   const message = typeof error === 'string' ? error : error.message;
@@ -28,4 +28,6 @@ export function ErrorAlert({ error, title = 'Error', onClose }) {
       )}
     </Alert>
   );
-}
+};
+
+export default ErrorAlert;

@@ -3,8 +3,10 @@ FROM node:26-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn ./.yarn
+RUN --mount=type=cache,target=/root/.yarn/berry/cache \
+    node .yarn/releases/yarn-4.19.0.cjs install --immutable
 
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
@@ -14,7 +16,7 @@ COPY public ./public
 COPY src ./src
 COPY security-headers.inc ./security-headers.inc
 
-RUN npm run build && node -e ' \
+RUN node .yarn/releases/yarn-4.19.0.cjs build && node -e ' \
   const fs = require("fs"); \
   const raw = (process.env.VITE_API_BASE_URL || "").trim(); \
   let extra = ""; \

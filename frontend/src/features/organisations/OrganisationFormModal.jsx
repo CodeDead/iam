@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { Button, Checkbox, Group, Modal, Stack, TextInput } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
+import ErrorAlert from '../../components/common/ErrorAlert';
 import { usePermissions } from '../../hooks/usePermissions';
 import { organisationService } from '../../services/organisationService';
 import { extractApiError } from '../../utils/errors';
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 
-export function OrganisationFormModal({ opened, onClose, organisation = null, onSaved }) {
+const OrganisationFormModal = ({ opened, onClose, organisation = null, onSaved }) => {
   const { hasPermission } = usePermissions();
   const canConfigureCreator = hasPermission('organisations.manage_members');
   const isEdit = Boolean(organisation);
@@ -127,4 +127,6 @@ export function OrganisationFormModal({ opened, onClose, organisation = null, on
       </form>
     </Modal>
   );
-}
+};
+
+export default OrganisationFormModal;

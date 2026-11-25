@@ -17,17 +17,18 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconEdit, IconEye, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
-import { ErrorAlert } from '../../components/common/ErrorAlert';
-import { PageHeader } from '../../components/common/PageHeader';
-import { PermissionGuard } from '../../components/common/PermissionGuard';
+import ErrorAlert from '../../components/common/ErrorAlert';
+import PageHeader from '../../components/common/PageHeader';
+import PermissionGuard from '../../components/common/PermissionGuard';
 import { usePermissions } from '../../hooks/usePermissions';
 import { permissionService } from '../../services/permissionService';
 import { roleService } from '../../services/roleService';
 import { extractApiError } from '../../utils/errors';
-import { RoleDetailModal } from './RoleDetailModal';
-import { RoleFormModal } from './RoleFormModal';
+import { fetchAllPages } from '../../utils/pagination';
+import RoleDetailModal from './RoleDetailModal';
+import RoleFormModal from './RoleFormModal';
 
-export function RolesPage() {
+const RolesPage = () => {
   const { hasPermission } = usePermissions();
   const [rolesData, setRolesData] = useState({ items: [], total: 0, page: 1, total_pages: 1 });
   const [allPermissions, setAllPermissions] = useState([]);
@@ -72,10 +73,9 @@ export function RolesPage() {
   useEffect(() => {
     if (!hasPermission('permissions.read')) return;
     let active = true;
-    permissionService
-      .list({ page: 1, page_size: 100 })
-      .then((res) => {
-        if (active) setAllPermissions(res.items || []);
+    fetchAllPages((catalogPage) => permissionService.list({ page: catalogPage, page_size: 100 }))
+      .then((items) => {
+        if (active) setAllPermissions(items);
       })
       .catch((err) => {
         if (active) setError(extractApiError(err, 'Failed to load permissions catalog'));
@@ -263,4 +263,6 @@ export function RolesPage() {
       <RoleDetailModal roleId={detailRoleId} onClose={() => setDetailRoleId(null)} />
     </Stack>
   );
-}
+};
+
+export default RolesPage;

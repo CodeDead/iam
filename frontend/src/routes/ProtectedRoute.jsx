@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
 
-export function ProtectedRoute({ children, requiredPermission, anyPermissions, allPermissions }) {
+const ProtectedRoute = ({ children, requiredPermission, anyPermissions, allPermissions }) => {
   const { isAuthenticated, isLoading, wasLoggedOut } = useAuth();
   const { hasPermission, hasAnyPermission, hasAllPermissions } = usePermissions();
   const location = useLocation();
@@ -38,4 +38,6 @@ export function ProtectedRoute({ children, requiredPermission, anyPermissions, a
   }
 
   return children;
-}
+};
+
+export default ProtectedRoute;

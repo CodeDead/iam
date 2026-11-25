@@ -1,8 +1,8 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PermissionMatrix } from '../components/forms/PermissionMatrix';
-import { RolesPage } from '../features/roles/RolesPage';
+import PermissionMatrix from '../components/forms/PermissionMatrix';
+import RolesPage from '../features/roles/RolesPage';
 import { permissionService } from '../services/permissionService';
 import { roleService } from '../services/roleService';
 import { renderWithProviders } from './testUtils';
