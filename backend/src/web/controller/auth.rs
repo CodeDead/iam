@@ -1,9 +1,13 @@
+use std::{future::Future, pin::Pin};
+
 use actix_web::{
-    HttpRequest, HttpResponse,
+    FromRequest, HttpRequest, HttpResponse,
     cookie::{Cookie, SameSite, time::Duration as CookieDuration},
+    dev::Payload,
     http::header,
     web,
 };
+use futures_util::StreamExt;
 
 use crate::{
     app::AppState,
@@ -22,6 +26,81 @@ use crate::{
 pub const AUTH_TRANSPORT_HEADER: &str = "X-Auth-Transport";
 const MAX_REFRESH_BODY_BYTES: usize = 4_096;
 const MAX_REFRESH_TOKEN_LEN: usize = 512;
+
+pub struct OptionalRefreshBody(pub Option<String>);
+
+impl FromRequest for OptionalRefreshBody {
+    type Error = AppError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
+
+    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let req = req.clone();
+        let mut payload = payload.take();
+
+        Box::pin(async move {
+            let mut body = web::BytesMut::new();
+            while let Some(chunk) = payload.next().await {
+                let chunk = chunk.map_err(|err| {
+                    AppError::bad_request(
+                        "INVALID_JSON_PAYLOAD",
+                        format!("Failed to read request body: {err}"),
+                    )
+                })?;
+                if body.len().saturating_add(chunk.len()) > MAX_REFRESH_BODY_BYTES {
+                    return Err(AppError::bad_request(
+                        "INVALID_JSON_PAYLOAD",
+                        "Refresh token request body is too large",
+                    ));
+                }
+                body.extend_from_slice(&chunk);
+            }
+
+            let bytes = body.freeze();
+            if bytes.trim_ascii().is_empty() {
+                return Ok(Self(None));
+            }
+
+            let is_json_content_type = req
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split(';').next())
+                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"));
+
+            if !is_json_content_type {
+                return Err(AppError::bad_request(
+                    "INVALID_CONTENT_TYPE",
+                    "Content-Type must be application/json when supplying a request body",
+                ));
+            }
+
+            let mut inner_payload = Payload::from(bytes);
+            let parsed = web::Json::<RefreshTokenRequest>::from_request(&req, &mut inner_payload)
+                .await
+                .map_err(|err| {
+                    let msg = err.to_string();
+                    let message = if msg.starts_with("Invalid JSON payload:") {
+                        msg
+                    } else {
+                        format!("Invalid JSON payload: {msg}")
+                    };
+                    AppError::bad_request("INVALID_JSON_PAYLOAD", message)
+                })?
+                .into_inner();
+
+            if let Some(ref token) = parsed.refresh_token
+                && token.len() > MAX_REFRESH_TOKEN_LEN
+            {
+                return Err(AppError::bad_request(
+                    "INVALID_JSON_PAYLOAD",
+                    "Refresh token exceeds maximum allowed length",
+                ));
+            }
+
+            Ok(Self(parsed.refresh_token))
+        })
+    }
+}
 
 #[utoipa::path(
     post,
@@ -149,12 +228,12 @@ pub async fn login(
 pub async fn refresh(
     req: HttpRequest,
     state: web::Data<AppState>,
-    body: web::Bytes,
+    body: OptionalRefreshBody,
 ) -> Result<HttpResponse, AppError> {
     let cookie_token = req
         .cookie(&state.settings.cookie.refresh_cookie_name)
         .map(|c| c.value().to_string());
-    let body_token = parse_optional_refresh_body(&req, &body)?;
+    let body_token = body.0;
     let header_transport = parse_requested_transport(&req)?;
 
     if cookie_token.is_some() && body_token.is_some() {
@@ -237,12 +316,12 @@ pub async fn refresh(
 pub async fn logout(
     req: HttpRequest,
     state: web::Data<AppState>,
-    body: web::Bytes,
+    body: OptionalRefreshBody,
 ) -> Result<HttpResponse, AppError> {
     let cookie_token = req
         .cookie(&state.settings.cookie.refresh_cookie_name)
         .map(|c| c.value().to_string());
-    let body_token = parse_optional_refresh_body(&req, &body)?;
+    let body_token = body.0;
     let header_transport = parse_requested_transport(&req)?;
 
     if cookie_token.is_some() && body_token.is_some() {
@@ -420,51 +499,6 @@ fn enforce_body_transport_policy(
     }
 
     Ok(())
-}
-
-fn parse_optional_refresh_body(req: &HttpRequest, body: &[u8]) -> Result<Option<String>, AppError> {
-    if body.len() > MAX_REFRESH_BODY_BYTES {
-        return Err(AppError::bad_request(
-            "INVALID_JSON_PAYLOAD",
-            "Refresh token request body is too large",
-        ));
-    }
-
-    if body.trim_ascii().is_empty() {
-        return Ok(None);
-    }
-
-    let is_json_content_type = req
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(';').next())
-        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"));
-
-    if !is_json_content_type {
-        return Err(AppError::bad_request(
-            "INVALID_CONTENT_TYPE",
-            "Content-Type must be application/json when supplying a request body",
-        ));
-    }
-
-    let parsed: RefreshTokenRequest = serde_json::from_slice(body).map_err(|err| {
-        AppError::bad_request(
-            "INVALID_JSON_PAYLOAD",
-            format!("Invalid JSON payload: {err}"),
-        )
-    })?;
-
-    if let Some(ref token) = parsed.refresh_token
-        && token.len() > MAX_REFRESH_TOKEN_LEN
-    {
-        return Err(AppError::bad_request(
-            "INVALID_JSON_PAYLOAD",
-            "Refresh token exceeds maximum allowed length",
-        ));
-    }
-
-    Ok(parsed.refresh_token)
 }
 
 fn extract_client_meta(

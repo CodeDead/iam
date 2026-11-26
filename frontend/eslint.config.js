@@ -21,7 +21,7 @@ export default [
       },
     },
     settings: {
-      react: { version: 'detect' },
+      react: { version: '19.3' },
     },
     plugins: {
       react,
