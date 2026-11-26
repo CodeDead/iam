@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
 use serde_json::json;
 use tracing::warn;
@@ -19,7 +19,8 @@ use crate::{
     middleware::{AuthenticatedUser, PermissionCache},
     repository::{
         auth::{
-            dao::refresh_token::RefreshToken, refresh_token_repository::RefreshTokenRepository,
+            dao::refresh_token::{RefreshToken, RefreshTokenTransport},
+            refresh_token_repository::RefreshTokenRepository,
         },
         organisation::{
             dao::organisation::{
@@ -52,6 +53,7 @@ const MAX_REVOKED_TOKENS_PER_FAMILY: usize = 5;
 
 pub struct AuthSession {
     pub response: AuthTokenResponse,
+    pub transport: RefreshTokenTransport,
     pub raw_refresh_token: Option<String>,
     pub csrf_token: Option<String>,
 }
@@ -98,6 +100,7 @@ impl AuthService {
     pub async fn register(
         &self,
         req: RegisterRequest,
+        transport: RefreshTokenTransport,
         user_agent: Option<String>,
         ip_address: Option<String>,
     ) -> Result<AuthSession, AppError> {
@@ -236,8 +239,14 @@ impl AuthService {
 
         let mut session = if status == AccountStatus::Active {
             let family_id = Uuid::new_v4().to_string();
-            self.issue_session(created, family_id, user_agent.clone(), ip_address.clone())
-                .await?
+            self.issue_session(
+                created,
+                family_id,
+                transport,
+                user_agent.clone(),
+                ip_address.clone(),
+            )
+            .await?
         } else {
             // Do not mint tokens, cookies, or refresh sessions for unverified accounts.
             let (role_summaries, permissions) = self.load_roles_and_permissions(&created).await?;
@@ -249,11 +258,15 @@ impl AuthService {
                     token_type: "None".to_string(),
                     expires_in: 0,
                     expires_at: Utc::now(),
-                    csrf_token: String::new(),
+                    refresh_token: None,
+                    refresh_expires_in: None,
+                    refresh_expires_at: None,
+                    csrf_token: None,
                     user: user_response,
                     permissions,
                     organisation: None,
                 },
+                transport,
                 raw_refresh_token: None,
                 csrf_token: None,
             }
@@ -270,6 +283,7 @@ impl AuthService {
                 .with_actor(Some(created_id), Some(created_email.clone()))
                 .with_resource(created_id.to_hex(), created_email)
                 .with_details(json!({
+                    "transport": transport.as_str(),
                     "ip_address": ip_address,
                     "user_agent": user_agent,
                 })),
@@ -282,6 +296,7 @@ impl AuthService {
     pub async fn login(
         &self,
         req: LoginRequest,
+        transport: RefreshTokenTransport,
         user_agent: Option<String>,
         ip_address: Option<String>,
     ) -> Result<AuthSession, AppError> {
@@ -357,7 +372,13 @@ impl AuthService {
         let user_id = updated.id;
         let user_email = updated.email.clone();
         let session = self
-            .issue_session(updated, family_id, user_agent.clone(), ip_address.clone())
+            .issue_session(
+                updated,
+                family_id,
+                transport,
+                user_agent.clone(),
+                ip_address.clone(),
+            )
             .await?;
 
         self.audit_service
@@ -370,6 +391,7 @@ impl AuthService {
                 .with_actor(Some(user_id), Some(user_email.clone()))
                 .with_resource(user_id.to_hex(), user_email)
                 .with_details(json!({
+                    "transport": transport.as_str(),
                     "ip_address": ip_address,
                     "user_agent": user_agent,
                 })),
@@ -382,6 +404,7 @@ impl AuthService {
     pub async fn refresh(
         &self,
         raw_refresh_token: &str,
+        presented_transport: RefreshTokenTransport,
         user_agent: Option<String>,
         ip_address: Option<String>,
     ) -> Result<AuthSession, AppError> {
@@ -427,6 +450,8 @@ impl AuthService {
                     )
                     .with_details(json!({
                         "family_id": stored.family_id,
+                        "transport": stored.transport.as_str(),
+                        "presented_transport": presented_transport.as_str(),
                         "ip_address": ip_address,
                     }))
                     .as_warning(),
@@ -435,6 +460,43 @@ impl AuthService {
             return Err(AppError::unauthorized(
                 "REFRESH_TOKEN_REUSED",
                 "Refresh token has already been used or revoked; session terminated",
+            ));
+        }
+
+        // Strict transport binding prevents cookie-issued sessions from being downgraded
+        // to JSON body tokens (and prevents body tokens from being submitted via cookies).
+        if stored.transport != presented_transport {
+            let user_email = self
+                .user_repo
+                .find_by_id(stored.user_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.email);
+            self.audit_service
+                .record(
+                    AuditEvent::system(
+                        "auth.refresh_token_transport_mismatch",
+                        "auth",
+                        "Refresh token presented over mismatched authentication transport",
+                    )
+                    .with_actor(Some(stored.user_id), user_email.clone())
+                    .with_resource(
+                        stored.user_id.to_hex(),
+                        user_email.unwrap_or_else(|| stored.user_id.to_hex()),
+                    )
+                    .with_details(json!({
+                        "family_id": stored.family_id,
+                        "expected_transport": stored.transport.as_str(),
+                        "presented_transport": presented_transport.as_str(),
+                        "ip_address": ip_address,
+                    }))
+                    .as_warning(),
+                )
+                .await;
+            return Err(AppError::unauthorized(
+                "INVALID_REFRESH_TOKEN",
+                "Refresh token is invalid for this authentication transport",
             ));
         }
 
@@ -469,6 +531,7 @@ impl AuthService {
             user_id: user.id,
             token_hash: new_token_hash,
             family_id: stored.family_id.clone(),
+            transport: stored.transport,
             expires_at: chrono_to_bson_dt(refresh_expires),
             revoked_at: None,
             replaced_by_hash: None,
@@ -497,6 +560,7 @@ impl AuthService {
                     .with_resource(user.id.to_hex(), user.email)
                     .with_details(json!({
                         "family_id": stored.family_id,
+                        "transport": stored.transport.as_str(),
                         "ip_address": ip_address,
                     }))
                     .as_warning(),
@@ -522,15 +586,53 @@ impl AuthService {
             );
         }
 
-        self.build_auth_session(user, new_raw_token).await
+        self.build_auth_session(user, new_raw_token, refresh_expires, stored.transport)
+            .await
     }
 
-    pub async fn logout(&self, raw_refresh_token: Option<&str>) -> Result<(), AppError> {
+    pub async fn logout(
+        &self,
+        raw_refresh_token: Option<&str>,
+        presented_transport: Option<RefreshTokenTransport>,
+    ) -> Result<(), AppError> {
         if let Some(raw) = raw_refresh_token
             && !raw.trim().is_empty()
         {
             let token_hash = sha256_hex(raw);
             if let Some(stored) = self.refresh_token_repo.find_by_hash(&token_hash).await? {
+                if let Some(expected_transport) = presented_transport
+                    && stored.transport != expected_transport
+                {
+                    let user_email = self
+                        .user_repo
+                        .find_by_id(stored.user_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|u| u.email);
+                    self.audit_service
+                        .record(
+                            AuditEvent::system(
+                                "auth.refresh_token_transport_mismatch",
+                                "auth",
+                                "Logout refresh token presented over mismatched authentication transport",
+                            )
+                            .with_actor(Some(stored.user_id), user_email.clone())
+                            .with_resource(
+                                stored.user_id.to_hex(),
+                                user_email.unwrap_or_else(|| stored.user_id.to_hex()),
+                            )
+                            .with_details(json!({
+                                "family_id": stored.family_id,
+                                "expected_transport": stored.transport.as_str(),
+                                "presented_transport": expected_transport.as_str(),
+                            }))
+                            .as_warning(),
+                        )
+                        .await;
+                    return Ok(());
+                }
+
                 self.refresh_token_repo
                     .delete_family(&stored.family_id)
                     .await?;
@@ -552,7 +654,10 @@ impl AuthService {
                             format!("User '{label}' signed out"),
                         )
                         .with_actor(Some(stored.user_id), user_email)
-                        .with_resource(stored.user_id.to_hex(), label),
+                        .with_resource(stored.user_id.to_hex(), label)
+                        .with_details(json!({
+                            "transport": stored.transport.as_str(),
+                        })),
                     )
                     .await;
             }
@@ -581,6 +686,7 @@ impl AuthService {
         &self,
         user: User,
         family_id: String,
+        transport: RefreshTokenTransport,
         user_agent: Option<String>,
         ip_address: Option<String>,
     ) -> Result<AuthSession, AppError> {
@@ -593,6 +699,7 @@ impl AuthService {
             user_id: user.id,
             token_hash,
             family_id,
+            transport,
             expires_at: chrono_to_bson_dt(refresh_expires),
             revoked_at: None,
             replaced_by_hash: None,
@@ -602,38 +709,71 @@ impl AuthService {
         };
 
         self.refresh_token_repo.create(&record).await?;
-        self.build_auth_session(user, raw_refresh_token).await
+        self.build_auth_session(user, raw_refresh_token, refresh_expires, transport)
+            .await
     }
 
     async fn build_auth_session(
         &self,
         user: User,
         raw_refresh_token: String,
+        refresh_expires_at: DateTime<Utc>,
+        transport: RefreshTokenTransport,
     ) -> Result<AuthSession, AppError> {
         let (access_token, expires_at) = self
             .jwt_service
             .generate_access_token(user.id, user.token_version)?;
-        let csrf_token = generate_opaque_token(24);
         let (role_summaries, permissions) = self.load_roles_and_permissions(&user).await?;
         let user_response =
             UserResponse::from_user(user, role_summaries, Some(permissions.clone()));
 
-        let response = AuthTokenResponse {
-            access_token,
-            token_type: "Bearer".to_string(),
-            expires_in: self.jwt_service.access_token_ttl_seconds(),
-            expires_at,
-            csrf_token: csrf_token.clone(),
-            user: user_response,
-            permissions,
-            organisation: None,
-        };
+        match transport {
+            RefreshTokenTransport::Cookie => {
+                let csrf_token = generate_opaque_token(24);
+                let response = AuthTokenResponse {
+                    access_token,
+                    token_type: "Bearer".to_string(),
+                    expires_in: self.jwt_service.access_token_ttl_seconds(),
+                    expires_at,
+                    refresh_token: None,
+                    refresh_expires_in: None,
+                    refresh_expires_at: None,
+                    csrf_token: Some(csrf_token.clone()),
+                    user: user_response,
+                    permissions,
+                    organisation: None,
+                };
 
-        Ok(AuthSession {
-            response,
-            raw_refresh_token: Some(raw_refresh_token),
-            csrf_token: Some(csrf_token),
-        })
+                Ok(AuthSession {
+                    response,
+                    transport,
+                    raw_refresh_token: Some(raw_refresh_token),
+                    csrf_token: Some(csrf_token),
+                })
+            }
+            RefreshTokenTransport::Body => {
+                let response = AuthTokenResponse {
+                    access_token,
+                    token_type: "Bearer".to_string(),
+                    expires_in: self.jwt_service.access_token_ttl_seconds(),
+                    expires_at,
+                    refresh_token: Some(raw_refresh_token),
+                    refresh_expires_in: Some(self.settings.jwt.refresh_token_ttl),
+                    refresh_expires_at: Some(refresh_expires_at),
+                    csrf_token: None,
+                    user: user_response,
+                    permissions,
+                    organisation: None,
+                };
+
+                Ok(AuthSession {
+                    response,
+                    transport,
+                    raw_refresh_token: None,
+                    csrf_token: None,
+                })
+            }
+        }
     }
 
     async fn load_roles_and_permissions(

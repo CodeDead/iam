@@ -9,19 +9,18 @@ export default [
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
-      ecmaVersion: 2022,
+      ecmaVersion: 'latest',
+      sourceType: 'module',
       globals: {
         ...globals.browser,
-        ...globals.es2021,
+        ...globals.es2025,
       },
       parserOptions: {
-        ecmaVersion: 'latest',
         ecmaFeatures: { jsx: true },
-        sourceType: 'module',
       },
     },
     settings: {
-      react: { version: 'detect' },
+      react: { version: '19.3' },
     },
     plugins: {
       react,

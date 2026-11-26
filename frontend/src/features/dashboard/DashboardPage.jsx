@@ -101,7 +101,12 @@ const StatCard = ({ label, value, subtitle, icon: Icon, color }) => {
 };
 
 function getAuditBadgeColor(action = '') {
-  if (action.endsWith('deleted') || action.includes('reused') || action.endsWith('_failed')) {
+  if (
+    action.endsWith('deleted') ||
+    action.includes('reused') ||
+    action.includes('mismatch') ||
+    action.endsWith('_failed')
+  ) {
     return 'red';
   }
   if (

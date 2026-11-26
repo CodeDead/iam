@@ -66,10 +66,19 @@ const ACTION_OPTIONS = [
   { value: 'auth.login_failed', label: 'auth.login_failed' },
   { value: 'auth.logout', label: 'auth.logout' },
   { value: 'auth.refresh_token_reused', label: 'auth.refresh_token_reused' },
+  {
+    value: 'auth.refresh_token_transport_mismatch',
+    label: 'auth.refresh_token_transport_mismatch',
+  },
 ];
 
 function getActionBadgeColor(action = '') {
-  if (action.endsWith('deleted') || action.includes('reused') || action.endsWith('_failed')) {
+  if (
+    action.endsWith('deleted') ||
+    action.includes('reused') ||
+    action.includes('mismatch') ||
+    action.endsWith('_failed')
+  ) {
     return 'red';
   }
   if (

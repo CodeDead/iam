@@ -7,7 +7,7 @@ use auth_backend::{
     config::Settings,
     database::seed::SYSTEM_PERMISSIONS,
     repository::{
-        auth::dao::refresh_token::RefreshToken,
+        auth::dao::refresh_token::{RefreshToken, RefreshTokenTransport},
         organisation::dao::organisation::{
             Organisation, OrganisationMember, OrganisationMemberRole, OrganisationMemberStatus,
         },
@@ -61,14 +61,14 @@ async fn mongodb_repositories_indexes_and_seeding() {
     assert!(!role_counts.is_empty());
 
     // 3. Verify OrganisationRepository case-insensitive unique index, find_by_name,
-    //    optimistic concurrency control, membership_counts, and backfill_missing_owners
+    //    optimistic concurrency control, and membership_counts
     let now = BsonDateTime::now();
     let org = Organisation {
         id: ObjectId::new(),
         name: "Mongo Integration Org".to_string(),
         members: vec![OrganisationMember {
             user_id: sa.id,
-            role: OrganisationMemberRole::Member,
+            role: OrganisationMemberRole::Owner,
             status: OrganisationMemberStatus::Active,
             joined_at: now,
         }],
@@ -97,15 +97,10 @@ async fn mongodb_repositories_indexes_and_seeding() {
     };
     assert!(state.organisation_repo.create(&dup).await.is_err());
 
-    // Backfill missing owner promotes the sole active member to Owner
-    let repaired = state
-        .organisation_repo
-        .backfill_missing_owners()
-        .await
-        .unwrap();
-    assert_eq!(repaired, 1);
-
-    // Stale version update must fail with CONCURRENT_MODIFICATION
+    // Updating advances version so a stale copy fails with CONCURRENT_MODIFICATION
+    let mut updated_org = created.clone();
+    updated_org.updated_at = BsonDateTime::now();
+    state.organisation_repo.update(&updated_org).await.unwrap();
     let stale_err = state.organisation_repo.update(&created).await;
     assert!(stale_err.is_err());
 
@@ -140,6 +135,7 @@ async fn mongodb_repositories_indexes_and_seeding() {
         user_id: sa.id,
         token_hash: "hash_a".to_string(),
         family_id: "fam_mongo".to_string(),
+        transport: RefreshTokenTransport::Body,
         expires_at: BsonDateTime::from_millis(now.timestamp_millis() + 60_000),
         revoked_at: None,
         replaced_by_hash: None,
@@ -148,6 +144,16 @@ async fn mongodb_repositories_indexes_and_seeding() {
         created_at: now,
     };
     state.refresh_token_repo.create(&token_a).await.unwrap();
+    assert_eq!(
+        state
+            .refresh_token_repo
+            .find_by_hash("hash_a")
+            .await
+            .unwrap()
+            .unwrap()
+            .transport,
+        RefreshTokenTransport::Body
+    );
 
     let token_b = RefreshToken {
         id: ObjectId::new(),

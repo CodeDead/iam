@@ -29,17 +29,17 @@ BSON Data Access Objects (DAOs) and repository implementations live under [`src/
 - `is_system`: Ascending index (`perm_is_system_idx`)
 
 ### 4. `organisations`
-- `name`: **Case-insensitive unique** ascending index (`org_name_unique`, `{ locale: "en", strength: 2 }` collation; legacy case-sensitive indexes are upgraded automatically at startup)
+- `name`: **Case-insensitive unique** ascending index (`org_name_unique`, `{ locale: "en", strength: 2 }` collation)
 - `members.user_id`: Multikey ascending index (`org_members_user_id_idx`) for fast user membership queries and user-deletion cleanup
 - `created_at`: Descending index (`org_created_at_desc`) backing pagination and 7-day dashboard growth metrics
 - **Optimistic concurrency (`version`)**: Organisation updates match and increment a `version` counter (`409 CONCURRENT_MODIFICATION` on concurrent mutation races), and bulk `$pull` membership cleanup on user deletion also increments `version` so concurrent updates cannot re-insert deleted users.
-- **Startup owner backfill**: On startup, any existing organisation with active members and no active `owner` automatically promotes its earliest active member to `role: "owner"`.
 
 ### 5. `refresh_tokens`
 - `token_hash`: **Unique** ascending index (`token_hash_unique`)
 - `user_id`: Ascending index (`user_id_idx`)
 - `family_id`: Ascending index (`family_id_idx`)
 - `family_id`, `revoked_at`: Compound index (`family_revoked_at_idx`) used to prune old rotated tokens to at most 5 per session family
+- `transport`: Persisted per token (`"cookie"` or `"body"`), strictly binding each token family to its original channel across rotations
 - `expires_at`: TTL index (`expires_at_ttl`, `expireAfterSeconds: 0`) for automatic MongoDB cleanup of expired tokens
 - `revoked_at`: TTL index (`revoked_at_ttl`, controlled by `REVOKED_TOKEN_RETENTION_SECONDS`, default `3600` seconds; setting `0` drops/disables the index) for automatic cleanup of revoked tokens (active sessions with `revoked_at: null` are unaffected; logout and account deletion also hard-delete tokens immediately)
 

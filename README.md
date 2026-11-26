@@ -6,7 +6,7 @@ A production-oriented, full-stack Role-Based Access Control (RBAC) platform buil
 
 ## 1. Architecture Overview
 
-The repository contains two independently structured projects communicating exclusively over a versioned JSON REST API (`/api/v1`) with short-lived **EdDSA (Ed25519) JWT access tokens** and **HttpOnly rotating refresh-token cookies** protected by **double-submit CSRF validation**.
+The repository contains two independently structured projects communicating exclusively over a versioned JSON REST API (`/api/v1`) with short-lived **EdDSA (Ed25519) JWT access tokens** and rotating refresh tokens—delivered by default via **HttpOnly cookies protected by double-submit CSRF validation** for browsers, with an opt-in **transport-bound JSON-body flow (`X-Auth-Transport: body`)** for non-browser, desktop, and allowlisted WebView clients.
 
 ```text
 ┌──────────────────────────────┐        HTTPS / JSON + Bearer JWT        ┌────────────────────────────────────┐
@@ -144,7 +144,7 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 | `roles` | `_id`, `name`, `description`, `permissions: [ObjectId]`, `is_system`, `created_at`, `updated_at` | Unique `name` (`role_name_unique`), `permissions` (`permissions_idx`), `is_system` (`is_system_idx`) |
 | `permissions` | `_id`, `name` (`resource.action`), `resource`, `action`, `description`, `is_system`, `created_at`, `updated_at` | Unique `name` (`permission_name_unique`), compound unique `(resource, action)` (`resource_action_unique`), `is_system` (`perm_is_system_idx`) |
 | `organisations` | `_id`, `name`, `members: [{ user_id, role, status, joined_at }]`, `version`, `created_at`, `updated_at` | Case-insensitive unique `name` (`org_name_unique`, `en` strength-2 collation), multikey `members.user_id` (`org_members_user_id_idx`), `created_at` (`org_created_at_desc`) |
-| `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), `(family_id, revoked_at)` (`family_revoked_at_idx`), TTL on `expires_at` (`expires_at_ttl`), TTL on `revoked_at` (`revoked_at_ttl`) |
+| `refresh_tokens` | `_id`, `user_id`, `token_hash` (SHA-256), `family_id`, `transport` (`cookie`\|`body`), `expires_at`, `revoked_at`, `replaced_by_hash`, `user_agent`, `ip_address`, `created_at` | Unique `token_hash` (`token_hash_unique`), `user_id` (`user_id_idx`), `family_id` (`family_id_idx`), `(family_id, revoked_at)` (`family_revoked_at_idx`), TTL on `expires_at` (`expires_at_ttl`), TTL on `revoked_at` (`revoked_at_ttl`) |
 | `audit_logs` | `_id`, `action`, `resource_type`, `resource_id`, `resource_name`, `actor_id`, `actor_email`, `summary`, `details`, `created_at` | `created_at` (`audit_created_at_desc`), TTL on `created_at` (`audit_created_at_ttl`, configurable via `AUDIT_LOG_RETENTION_DAYS`), `(action, created_at)` (`audit_action_created_at`), `(resource_type, created_at)` (`audit_resource_type_created_at`), `(actor_id, created_at)` (`audit_actor_id_created_at`) |
 
 - **Relationships**: Users reference multiple `roles` by `ObjectId`; roles reference multiple `permissions` by `ObjectId`; organisations embed `members` (`{ user_id, role, status, joined_at }` with org-scoped roles `owner`/`admin`/`member` and statuses `active`/`invited`/`suspended`). A single user can belong to multiple organisations simultaneously. Effective platform permissions are computed dynamically as the union of permissions across all assigned roles.
@@ -159,7 +159,7 @@ See [backend/migrations/README.md](backend/migrations/README.md) for indexing an
 
 1. **Password Security & Timing Protection**: Argon2id (`argon2 0.6`, `Algorithm::Argon2id`, `V0x13`, 19 MiB, 2 iterations) executed off the Actix event loop via `tokio::task::spawn_blocking`. Unknown-email logins execute a dummy Argon2id verification to prevent timing-based user enumeration, all failed login attempts are recorded as `auth.login_failed` audit events, and post-Argon2id updates (`login` `last_login_at` and `change_password`) use atomic MongoDB `$set`/`$inc` filters on `status: "active"` so concurrent admin disables or role revocations can never be overwritten.
 2. **Access JWTs**: Asymmetric **EdDSA (Ed25519)** signed tokens (`jsonwebtoken 12`, `ed25519-dalek 3`, default 15m TTL, with a startup keypair sign+verify self-check) validating signature, `iss`, `aud`, `exp`, `nbf`, `token_type == "access"`, and `tv` (user `token_version`, incremented immediately upon role changes, account deactivation, or password changes). Permissions are **never** trusted blindly from JWT claims; they are resolved via a bounded, generation-tracked `PermissionCache` explicitly invalidated immediately upon any user role, role permission, or permission mutation.
-3. **Refresh Token Rotation, Reuse Detection & Cleanup**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB, transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production). Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions on replica sets, with `WriteConflict` / `TransientTransactionError` handled cleanly as concurrent reuse) and prunes older revoked tokens in that family to at most **5** recent entries so repeated page reloads cannot grow the collection unboundedly. Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately (and the frontend coordinates multi-tab refreshes, login/register broadcasts, late-401 token reuse, and logout sync via `navigator.locks` + `BroadcastChannel` to prevent benign cross-tab races). Revoked tokens are automatically purged by MongoDB's `revoked_at` TTL index (`REVOKED_TOKEN_RETENTION_SECONDS`, default `3600` seconds; `0` drops the index), expired tokens are purged via the `expires_at` TTL index, and logout or account/user deletion hard-deletes session tokens immediately.
+3. **Refresh Token Rotation, Reuse Detection & Dual Transport**: Opaque 32-byte random tokens stored as SHA-256 hashes in MongoDB. By default, tokens are transmitted via `HttpOnly; SameSite=Lax` cookies (`Secure` in production) with double-submit CSRF protection. Non-browser clients (desktop, CLI, mobile, or allowlisted WebView apps) can opt into JSON-body refresh tokens by sending `X-Auth-Transport: body` on `/api/v1/auth/login` or `/api/v1/auth/register` and passing `{ "refresh_token": "..." }` to `/api/v1/auth/refresh` and `/api/v1/auth/logout`. Each refresh token family is strictly **transport-bound** (`cookie` vs `body`) so cookie sessions can never be downgraded into JS-readable JSON responses, ambiguous cookie+body requests are rejected (`400`), web SPA origins (`FRONTEND_URL` / `ALLOWED_ORIGINS`) are blocked from body transport (`403`), and WebView JS origins can be explicitly allowlisted via `ALLOWED_BODY_TOKEN_ORIGINS`. Each refresh atomically rotates the token within a `family_id` (using MongoDB transactions on replica sets, with `WriteConflict` / `TransientTransactionError` handled cleanly as concurrent reuse) and prunes older revoked tokens in that family to at most **5** recent entries so repeated page reloads cannot grow the collection unboundedly. Presenting an already-rotated token triggers **reuse detection**, revoking the entire token family immediately (and the frontend coordinates multi-tab refreshes, login/register broadcasts, late-401 token reuse, and logout sync via `navigator.locks` + `BroadcastChannel` to prevent benign cross-tab races). Revoked tokens are automatically purged by MongoDB's `revoked_at` TTL index (`REVOKED_TOKEN_RETENTION_SECONDS`, default `3600` seconds; `0` drops the index), expired tokens are purged via the `expires_at` TTL index, and logout or account/user deletion hard-deletes session tokens immediately.
 4. **CSRF Protection**: Double-submit cookie pattern (`csrf_token` cookie + `X-CSRF-Token` header verified with constant-time comparison via `subtle`).
 5. **Privilege Escalation Defenses** (enforced in both HTTP middleware and services):
    - Registration strictly assigns only the `User` role, rejects unexpected fields (`#[serde(deny_unknown_fields)]`), and withholds tokens/cookies when `REQUIRE_EMAIL_VERIFICATION=true`.
@@ -189,10 +189,10 @@ Interactive OpenAPI 3.1 Swagger UI (`utoipa 6` + vendored `utoipa-swagger-ui 10`
 ### Authentication
 | Method | Endpoint | Auth / Permission | Description |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/auth/register` | Public | Register a personal `User` account (or an Organisation account when `organisation_name` is provided) |
-| `POST` | `/api/v1/auth/login` | Public | Authenticate & issue access JWT + refresh cookie |
-| `POST` | `/api/v1/auth/refresh` | Refresh cookie + CSRF | Rotate refresh token & issue new access JWT |
-| `POST` | `/api/v1/auth/logout` | Refresh cookie + CSRF | Delete token family & clear cookies |
+| `POST` | `/api/v1/auth/register` | Public | Register a personal `User` account (or an Organisation account when `organisation_name` is provided). Optional `X-Auth-Transport: body` header returns `refresh_token` in JSON instead of setting cookies |
+| `POST` | `/api/v1/auth/login` | Public | Authenticate & issue access JWT + refresh cookie (or JSON `refresh_token` with `X-Auth-Transport: body`) |
+| `POST` | `/api/v1/auth/refresh` | Refresh cookie + CSRF, or JSON `{ "refresh_token" }` | Rotate refresh token & issue new access JWT (strictly bound to original transport) |
+| `POST` | `/api/v1/auth/logout` | Refresh cookie + CSRF, or JSON `{ "refresh_token" }` | Delete token family (and clear cookies in cookie mode) |
 | `GET` | `/api/v1/auth/me` | Bearer JWT | Get authenticated user & effective permissions |
 
 ### Users, Organisations, Roles, Permissions, Audit Logs, Profile & Dashboard
@@ -259,6 +259,36 @@ Content-Type: application/json
 }
 ```
 
+### Non-Browser / Desktop & WebView Client Authentication
+
+Non-browser clients (native desktop apps, CLIs, mobile apps) and allowlisted WebView apps (e.g., Tauri, Electron, Capacitor) can opt into JSON-body refresh tokens without cookies or CSRF headers:
+
+1. **Sign In**: Send `X-Auth-Transport: body` on `POST /api/v1/auth/login` (or `/register`). The response includes `access_token`, `refresh_token`, `refresh_expires_in`, and `refresh_expires_at`, omits `csrf_token`, and sets no cookies.
+2. **Store Securely**: Persist `refresh_token` in the OS credential manager / keychain (never plaintext config files or `localStorage`).
+3. **Refresh**: Send `POST /api/v1/auth/refresh` with `Content-Type: application/json` and `{"refresh_token": "<token>"}` (serialize concurrent refreshes in the client so rotated tokens are never replayed).
+4. **Logout**: Send `POST /api/v1/auth/logout` with `Content-Type: application/json` and `{"refresh_token": "<token>"}`.
+5. **WebView JS Origins**: If calling from a WebView JS context (e.g., `tauri://localhost`, `http://tauri.localhost`, `capacitor://localhost`), add the WebView origin(s) to `ALLOWED_BODY_TOKEN_ORIGINS`. Web browser origins in `FRONTEND_URL` / `ALLOWED_ORIGINS` remain restricted to `HttpOnly` cookie sessions.
+
+```http
+POST /api/v1/auth/login HTTP/1.1
+Content-Type: application/json
+X-Auth-Transport: body
+
+{
+  "email": "admin@example.com",
+  "password": "ChangeMe123!"
+}
+```
+
+```http
+POST /api/v1/auth/refresh HTTP/1.1
+Content-Type: application/json
+
+{
+  "refresh_token": "<opaque_refresh_token>"
+}
+```
+
 Error response example (`403 Forbidden`):
 
 ```json
@@ -289,7 +319,10 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 | `JWT_ACCESS_TOKEN_TTL` / `JWT_REFRESH_TOKEN_TTL` | `900` / `604800` | Token lifetimes in seconds (15 min / 7 days) |
 | `REVOKED_TOKEN_RETENTION_SECONDS` | `3600` | MongoDB TTL retention in seconds for revoked refresh tokens (1 hour; `0` drops/disables `revoked_at_ttl`); rotation also prunes to at most 5 revoked tokens per session family |
 | `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(empty in dev)* | Ed25519 PKCS#8/SPKI PEM key paths (both required together; mandatory in production; sign+verify checked at startup) |
-| `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist (setting `FRONTEND_URL` replaces the dev default; wildcards forbidden) |
+| `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist for the web UI (setting `FRONTEND_URL` replaces the dev default; `*` and `null` origins forbidden) |
+| `ALLOWED_BODY_TOKEN_ORIGINS` | *(empty)* | Optional comma-separated WebView / desktop origins (e.g., `tauri://localhost,http://tauri.localhost`) permitted to use CORS + `X-Auth-Transport: body` JSON refresh tokens (`*` and `null` origins forbidden) |
+| `ALLOW_BODY_REFRESH_TOKENS` | `true` | Enables or disables issuing/refreshing JSON-body refresh tokens for non-browser/WebView clients (body logout remains allowed so existing sessions can revoke cleanly) |
+| `REJECT_BROWSER_ORIGIN_FOR_BODY_TOKENS` | `true` | Rejects `Origin` / `Sec-Fetch-Site` browser headers on body-token requests unless the `Origin` is listed in `ALLOWED_BODY_TOKEN_ORIGINS` (origins in `FRONTEND_URL` / `ALLOWED_ORIGINS` are always blocked unless explicitly allowlisted) |
 | `COOKIE_SECURE` / `COOKIE_SAME_SITE` / `COOKIE_DOMAIN` | `false` / `Lax` / *(empty)* | Refresh & CSRF cookie attributes (`COOKIE_SAME_SITE` validated at startup; `None` requires `COOKIE_SECURE=true`) |
 | `RATE_LIMIT_ENABLED` / `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_API_PER_MINUTE` | `true` / `30` / `300` | Cross-worker shared per-IP rate limiting thresholds (bounded memory with stale/oldest bucket eviction; applies to both `/api/v1` and stricter `/api/v1/auth`) |
 | `TRUST_PROXY_HEADERS` | `false` | When `true`, rate limiting and audit logs prefer Cloudflare's `CF-Connecting-IP` header, falling back to `X-Forwarded-For` / `X-Real-IP` (valid IPs only); when `false`, uses only the direct socket peer IP |

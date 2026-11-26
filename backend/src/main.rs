@@ -37,6 +37,9 @@ async fn main() -> std::io::Result<()> {
         trust_proxy_headers = shared_state.settings.rate_limit.trust_proxy_headers,
         rate_limit_enabled = shared_state.settings.rate_limit.enabled,
         swagger_enabled = shared_state.settings.is_swagger_enabled(),
+        allow_body_refresh_tokens = shared_state.settings.app.allow_body_refresh_tokens,
+        reject_browser_origin_for_body_tokens = shared_state.settings.app.reject_browser_origin_for_body_tokens,
+        allowed_body_token_origins_count = shared_state.settings.server.allowed_body_token_origins.len(),
         "Starting HTTP server"
     );
 

@@ -87,7 +87,6 @@ async fn dashboard_stats_returns_rich_metrics_for_super_admin_and_enforces_stric
     assert_eq!(data["users"]["new_last_7_days"], 2);
     assert_eq!(data["users"]["active_sessions"], 2);
 
-    assert_eq!(data["total_roles"], 4);
     assert_eq!(data["roles"]["total"], 4);
     assert_eq!(data["roles"]["system"], 4);
     assert_eq!(data["roles"]["custom"], 0);
@@ -95,7 +94,7 @@ async fn dashboard_stats_returns_rich_metrics_for_super_admin_and_enforces_stric
     assert_eq!(role_dist.len(), 4);
     assert!(role_dist.iter().all(|r| r["user_count"].is_u64()));
 
-    assert!(data["total_permissions"].as_u64().unwrap() >= 18);
+    assert!(data["permissions"]["total"].as_u64().unwrap() >= 18);
     assert!(data["permissions"]["by_resource"].as_array().unwrap().len() >= 5);
 
     let audit = &data["audit"];
@@ -128,9 +127,7 @@ async fn dashboard_stats_returns_rich_metrics_for_super_admin_and_enforces_stric
 
     assert_eq!(member_data["my_active_sessions"], 1);
     assert!(member_data.get("users").is_none());
-    assert!(member_data.get("total_roles").is_none());
     assert!(member_data.get("roles").is_none());
-    assert!(member_data.get("total_permissions").is_none());
     assert!(member_data.get("permissions").is_none());
     assert!(member_data.get("audit").is_none());
 }

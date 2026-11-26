@@ -15,10 +15,18 @@ pub struct AppSettings {
     pub enable_swagger_ui: Option<bool>,
     #[serde(default = "default_audit_log_retention_days")]
     pub audit_log_retention_days: u64,
+    #[serde(default = "default_true")]
+    pub allow_body_refresh_tokens: bool,
+    #[serde(default = "default_true")]
+    pub reject_browser_origin_for_body_tokens: bool,
 }
 
 fn default_audit_log_retention_days() -> u64 {
     90
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -27,6 +35,8 @@ pub struct ServerSettings {
     pub port: u16,
     pub frontend_url: String,
     pub allowed_origins: Vec<String>,
+    #[serde(default)]
+    pub allowed_body_token_origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,12 +109,15 @@ impl Default for Settings {
                 permission_cache_ttl_seconds: 30,
                 enable_swagger_ui: None,
                 audit_log_retention_days: default_audit_log_retention_days(),
+                allow_body_refresh_tokens: true,
+                reject_browser_origin_for_body_tokens: true,
             },
             server: ServerSettings {
                 host: "127.0.0.1".to_string(),
                 port: 8080,
                 frontend_url: "http://localhost:5173".to_string(),
                 allowed_origins: vec!["http://localhost:5173".to_string()],
+                allowed_body_token_origins: Vec::new(),
             },
             mongodb: MongoDbSettings {
                 uri: "mongodb://localhost:27017".to_string(),
@@ -192,9 +205,19 @@ impl Settings {
             ));
         }
 
-        if self.server.allowed_origins.iter().any(|o| o.trim() == "*") {
+        let has_forbidden_origin = |origins: &[String]| {
+            origins.iter().any(|o| {
+                let normalized = o.trim().trim_end_matches('/');
+                normalized == "*" || normalized.eq_ignore_ascii_case("null")
+            })
+        };
+
+        if has_forbidden_origin(&self.server.allowed_origins)
+            || has_forbidden_origin(&self.server.allowed_body_token_origins)
+        {
             return Err(AppError::Internal(
-                "Wildcard CORS origin '*' is forbidden with credentialed requests".to_string(),
+                "Wildcard '*' and 'null' CORS origins are forbidden with credentialed requests"
+                    .to_string(),
             ));
         }
 
@@ -291,6 +314,16 @@ fn apply_env_overrides(settings: &mut Settings) {
     {
         settings.app.audit_log_retention_days = parsed;
     }
+    if let Ok(val) = env::var("ALLOW_BODY_REFRESH_TOKENS")
+        && let Some(parsed) = parse_bool_env("ALLOW_BODY_REFRESH_TOKENS", &val)
+    {
+        settings.app.allow_body_refresh_tokens = parsed;
+    }
+    if let Ok(val) = env::var("REJECT_BROWSER_ORIGIN_FOR_BODY_TOKENS")
+        && let Some(parsed) = parse_bool_env("REJECT_BROWSER_ORIGIN_FOR_BODY_TOKENS", &val)
+    {
+        settings.app.reject_browser_origin_for_body_tokens = parsed;
+    }
 
     if let Ok(val) = env::var("SERVER_HOST") {
         settings.server.host = val.trim().to_string();
@@ -301,7 +334,7 @@ fn apply_env_overrides(settings: &mut Settings) {
         settings.server.port = parsed;
     }
     if let Ok(val) = env::var("FRONTEND_URL") {
-        let trimmed = val.trim().to_string();
+        let trimmed = val.trim().trim_end_matches('/').to_string();
         if !trimmed.is_empty() {
             settings.server.frontend_url = trimmed.clone();
             // Replace default localhost allowlist when FRONTEND_URL is explicitly configured;
@@ -312,12 +345,19 @@ fn apply_env_overrides(settings: &mut Settings) {
     if let Ok(val) = env::var("ALLOWED_ORIGINS") {
         let origins: Vec<String> = val
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().trim_end_matches('/').to_string())
             .filter(|s| !s.is_empty())
             .collect();
         if !origins.is_empty() {
             settings.server.allowed_origins = origins;
         }
+    }
+    if let Ok(val) = env::var("ALLOWED_BODY_TOKEN_ORIGINS") {
+        settings.server.allowed_body_token_origins = val
+            .split(',')
+            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
     }
 
     if let Some(val) = read_secret_env("MONGODB_URI", "MONGODB_URI_FILE") {
