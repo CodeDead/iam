@@ -271,30 +271,18 @@ impl MongoDb {
         let organisations = self
             .database
             .collection::<Document>(ORGANISATIONS_COLLECTION);
-        let org_name_index = IndexModel::builder()
-            .keys(doc! { "name": 1 })
-            .options(
-                IndexOptions::builder()
-                    .unique(true)
-                    .collation(case_insensitive_collation())
-                    .name("org_name_unique".to_string())
-                    .build(),
-            )
-            .build();
-        if let Err(err) = organisations.create_index(org_name_index.clone()).await {
-            // Upgrade legacy case-sensitive org_name_unique index to case-insensitive collation.
-            let _ = organisations.drop_index("org_name_unique").await;
-            if let Err(retry_err) = organisations.create_index(org_name_index).await {
-                warn!(
-                    initial_error = %err,
-                    retry_error = %retry_err,
-                    "Failed to create case-insensitive org_name_unique index"
-                );
-                return Err(retry_err.into());
-            }
-        }
         organisations
             .create_indexes(vec![
+                IndexModel::builder()
+                    .keys(doc! { "name": 1 })
+                    .options(
+                        IndexOptions::builder()
+                            .unique(true)
+                            .collation(case_insensitive_collation())
+                            .name("org_name_unique".to_string())
+                            .build(),
+                    )
+                    .build(),
                 IndexModel::builder()
                     .keys(doc! { "members.user_id": 1 })
                     .options(

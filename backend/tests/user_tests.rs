@@ -329,7 +329,7 @@ async fn user_crud_authorization_disabled_account_and_privilege_escalation_rules
     assert_eq!(sa_stats.status(), StatusCode::OK);
     let stats_body: Value = test::read_body_json(sa_stats).await;
     assert!(stats_body["data"]["users"]["total"].as_u64().unwrap() >= 3);
-    assert!(stats_body["data"]["total_roles"].as_u64().unwrap() >= 4);
+    assert!(stats_body["data"]["roles"]["total"].as_u64().unwrap() >= 4);
 
     // Moderator (holds users.update) CANNOT disable or edit an Administrator (higher privilege)
     let moderator_role_id = state

@@ -42,8 +42,8 @@ describe('Authentication, Registration, Logout & Route Protection', () => {
     vi.clearAllMocks();
     dashboardService.getStats.mockResolvedValue({
       users: { total: 5, active: 4, disabled: 1, locked: 0, pending_verification: 0 },
-      total_roles: 4,
-      total_permissions: 16,
+      roles: { total: 4, system: 4, custom: 0, distribution: [] },
+      permissions: { total: 16, system: 16, custom: 0, by_resource: [] },
     });
   });
 

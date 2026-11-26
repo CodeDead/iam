@@ -315,9 +315,16 @@ pub async fn me(
 }
 
 fn parse_requested_transport(req: &HttpRequest) -> Result<Option<RefreshTokenTransport>, AppError> {
-    let Some(header_value) = req.headers().get(AUTH_TRANSPORT_HEADER) else {
+    let mut values = req.headers().get_all(AUTH_TRANSPORT_HEADER);
+    let Some(header_value) = values.next() else {
         return Ok(None);
     };
+    if values.next().is_some() {
+        return Err(AppError::bad_request(
+            "INVALID_AUTH_TRANSPORT",
+            "Duplicate X-Auth-Transport headers are not allowed",
+        ));
+    }
 
     let raw = header_value.to_str().map_err(|_| {
         AppError::bad_request(
@@ -352,7 +359,20 @@ fn enforce_body_transport_policy(
         ));
     }
 
-    if let Some(origin_header) = req.headers().get(header::ORIGIN) {
+    let is_same_origin_fetch = req.headers().get_all("sec-fetch-site").any(|v| {
+        v.to_str()
+            .is_ok_and(|s| s.trim().eq_ignore_ascii_case("same-origin"))
+    });
+
+    let mut origins = req.headers().get_all(header::ORIGIN);
+    if let Some(origin_header) = origins.next() {
+        if origins.next().is_some() {
+            return Err(AppError::forbidden(
+                "BROWSER_ORIGIN_FORBIDDEN",
+                "Duplicate Origin headers are not allowed for JSON-body refresh token requests",
+            ));
+        }
+
         let raw_origin = origin_header.to_str().map_err(|_| {
             AppError::forbidden(
                 "BROWSER_ORIGIN_FORBIDDEN",
@@ -376,7 +396,7 @@ fn enforce_body_transport_policy(
                 .allowed_origins
                 .iter()
                 .any(|allowed| normalize_origin(allowed) == origin);
-        if is_web_origin {
+        if is_web_origin || is_same_origin_fetch {
             return Err(AppError::forbidden(
                 "BROWSER_ORIGIN_FORBIDDEN",
                 "Web browser origins must use cookie-based refresh tokens",
@@ -389,8 +409,9 @@ fn enforce_body_transport_policy(
                 "Origin is not allowed to use JSON-body refresh tokens; configure ALLOWED_BODY_TOKEN_ORIGINS for WebView clients",
             ));
         }
-    } else if settings.app.reject_browser_origin_for_body_tokens
-        && req.headers().contains_key("sec-fetch-site")
+    } else if is_same_origin_fetch
+        || (settings.app.reject_browser_origin_for_body_tokens
+            && req.headers().contains_key("sec-fetch-site"))
     {
         return Err(AppError::forbidden(
             "BROWSER_ORIGIN_FORBIDDEN",

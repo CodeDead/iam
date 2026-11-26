@@ -37,15 +37,11 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Validate, ToSchema)]
+#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RefreshTokenRequest {
     #[serde(default)]
-    #[validate(length(
-        min = 1,
-        max = 512,
-        message = "Refresh token must be 1 to 512 characters"
-    ))]
+    #[schema(min_length = 1, max_length = 512)]
     pub refresh_token: Option<String>,
 }
 

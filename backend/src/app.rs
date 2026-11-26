@@ -199,14 +199,6 @@ impl AppState {
         )
         .await?;
 
-        let backfilled_owners = organisation_repo.backfill_missing_owners().await?;
-        if backfilled_owners > 0 {
-            tracing::info!(
-                count = backfilled_owners,
-                "Backfilled owner role for legacy organisations"
-            );
-        }
-
         Ok(Self::from_repositories(
             settings,
             Some(mongo),
@@ -245,14 +237,16 @@ pub fn build_cors(settings: &Settings) -> Cors {
 
     let mut seen = std::collections::HashSet::new();
     for origin in &settings.server.allowed_origins {
-        if seen.insert(origin.clone()) {
-            cors = cors.allowed_origin(origin);
+        let trimmed = origin.trim().trim_end_matches('/');
+        if !trimmed.is_empty() && seen.insert(trimmed.to_ascii_lowercase()) {
+            cors = cors.allowed_origin(trimmed);
         }
     }
     if settings.app.allow_body_refresh_tokens {
         for origin in &settings.server.allowed_body_token_origins {
-            if seen.insert(origin.clone()) {
-                cors = cors.allowed_origin(origin);
+            let trimmed = origin.trim().trim_end_matches('/');
+            if !trimmed.is_empty() && seen.insert(trimmed.to_ascii_lowercase()) {
+                cors = cors.allowed_origin(trimmed);
             }
         }
     }

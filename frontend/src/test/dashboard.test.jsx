@@ -66,7 +66,6 @@ const fullStatsPayload = {
     new_last_7_days: 3,
     active_sessions: 5,
   },
-  total_roles: 5,
   roles: {
     total: 5,
     system: 4,
@@ -88,7 +87,6 @@ const fullStatsPayload = {
       },
     ],
   },
-  total_permissions: 18,
   permissions: {
     total: 18,
     system: 18,

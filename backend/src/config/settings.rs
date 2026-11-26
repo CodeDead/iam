@@ -205,15 +205,19 @@ impl Settings {
             ));
         }
 
-        if self.server.allowed_origins.iter().any(|o| o.trim() == "*")
-            || self
-                .server
-                .allowed_body_token_origins
-                .iter()
-                .any(|o| o.trim() == "*")
+        let has_forbidden_origin = |origins: &[String]| {
+            origins.iter().any(|o| {
+                let normalized = o.trim().trim_end_matches('/');
+                normalized == "*" || normalized.eq_ignore_ascii_case("null")
+            })
+        };
+
+        if has_forbidden_origin(&self.server.allowed_origins)
+            || has_forbidden_origin(&self.server.allowed_body_token_origins)
         {
             return Err(AppError::Internal(
-                "Wildcard CORS origin '*' is forbidden with credentialed requests".to_string(),
+                "Wildcard '*' and 'null' CORS origins are forbidden with credentialed requests"
+                    .to_string(),
             ));
         }
 
@@ -330,7 +334,7 @@ fn apply_env_overrides(settings: &mut Settings) {
         settings.server.port = parsed;
     }
     if let Ok(val) = env::var("FRONTEND_URL") {
-        let trimmed = val.trim().to_string();
+        let trimmed = val.trim().trim_end_matches('/').to_string();
         if !trimmed.is_empty() {
             settings.server.frontend_url = trimmed.clone();
             // Replace default localhost allowlist when FRONTEND_URL is explicitly configured;
@@ -341,7 +345,7 @@ fn apply_env_overrides(settings: &mut Settings) {
     if let Ok(val) = env::var("ALLOWED_ORIGINS") {
         let origins: Vec<String> = val
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().trim_end_matches('/').to_string())
             .filter(|s| !s.is_empty())
             .collect();
         if !origins.is_empty() {
@@ -351,7 +355,7 @@ fn apply_env_overrides(settings: &mut Settings) {
     if let Ok(val) = env::var("ALLOWED_BODY_TOKEN_ORIGINS") {
         settings.server.allowed_body_token_origins = val
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().trim_end_matches('/').to_string())
             .filter(|s| !s.is_empty())
             .collect();
     }

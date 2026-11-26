@@ -111,11 +111,7 @@ pub struct DashboardStatsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub users: Option<UserStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_roles: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub roles: Option<RoleStats>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_permissions: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<PermissionStats>,
     #[serde(skip_serializing_if = "Option::is_none")]

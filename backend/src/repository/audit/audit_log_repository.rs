@@ -182,7 +182,16 @@ impl AuditLogRepository for MongoAuditLogRepository {
                     "auth_failed": {
                         "$sum": {
                             "$cond": [
-                                { "$in": ["$action", ["auth.login_failed", "auth.refresh_token_reused"]] },
+                                {
+                                    "$in": [
+                                        "$action",
+                                        [
+                                            "auth.login_failed",
+                                            "auth.refresh_token_reused",
+                                            "auth.refresh_token_transport_mismatch"
+                                        ]
+                                    ]
+                                },
                                 1,
                                 0
                             ]

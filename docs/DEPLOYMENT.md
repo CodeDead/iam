@@ -73,15 +73,19 @@ Terminate TLS at a reverse proxy (Nginx, Envoy, Traefik, or Cloud Load Balancer)
 ```env
 FRONTEND_URL=https://admin.example.com
 ALLOWED_ORIGINS=https://admin.example.com
+# Optional: allowlist specific WebView / desktop origins for JSON-body refresh tokens
+ALLOWED_BODY_TOKEN_ORIGINS=
+ALLOW_BODY_REFRESH_TOKENS=true
+REJECT_BROWSER_ORIGIN_FOR_BODY_TOKENS=true
 COOKIE_SECURE=true
 COOKIE_SAME_SITE=Lax
 COOKIE_DOMAIN=.example.com
 ```
 
 Notes:
-- Wildcard CORS (`*`) is forbidden by startup validation when credentials are enabled. Setting `FRONTEND_URL` automatically replaces the dev `http://localhost:5173` default origin unless `ALLOWED_ORIGINS` overrides it.
+- Wildcard (`*`) and `null` CORS origins are forbidden by startup validation when credentials are enabled. Setting `FRONTEND_URL` automatically replaces the dev `http://localhost:5173` default origin unless `ALLOWED_ORIGINS` overrides it.
 - `COOKIE_SAME_SITE` is validated at startup (`Lax`, `Strict`, or `None`); if frontend and API live on different top-level domains, set `COOKIE_SAME_SITE=None` with `COOKIE_SECURE=true` (`SameSite=None` with `COOKIE_SECURE=false` is rejected).
-- Refresh tokens are stored in `HttpOnly; Secure` cookies scoped to `/api/v1/auth` and protected against CSRF via double-submit (`csrf_token` cookie + `X-CSRF-Token` header).
+- Web refresh tokens are stored in `HttpOnly; Secure` cookies scoped to `/api/v1/auth` and protected against CSRF via double-submit (`csrf_token` cookie + `X-CSRF-Token` header). Non-browser/desktop clients can opt into JSON-body refresh tokens via `X-Auth-Transport: body` (when `ALLOW_BODY_REFRESH_TOKENS=true`), while WebView JS clients must list their explicit origin(s) in `ALLOWED_BODY_TOKEN_ORIGINS` (e.g., `tauri://localhost,http://tauri.localhost`). Set `ALLOW_BODY_REFRESH_TOKENS=false` if your deployment serves only the browser UI.
 
 ---
 
@@ -98,7 +102,7 @@ TRUST_PROXY_HEADERS=true
 
 For horizontally scaled multi-replica backend deployments, place an edge/gateway rate limiter (Envoy, Kong, Cloudflare, or Redis-backed rate limiting) in front of the API pods.
 
-Verify effective security flags in the startup log line `Starting HTTP server`, which prints `environment`, `trust_proxy_headers`, `rate_limit_enabled`, and `swagger_enabled`. (Boolean environment variables accept case-insensitive `true`/`false`, `1`/`0`, or `yes`/`no`.)
+Verify effective security flags in the startup log line `Starting HTTP server`, which prints `environment`, `trust_proxy_headers`, `rate_limit_enabled`, `swagger_enabled`, `allow_body_refresh_tokens`, `reject_browser_origin_for_body_tokens`, and `allowed_body_token_origins_count`. (Boolean environment variables accept case-insensitive `true`/`false`, `1`/`0`, or `yes`/`no`.)
 
 ---
 

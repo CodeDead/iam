@@ -20,7 +20,7 @@ use crate::{
             dao::refresh_token::RefreshToken, refresh_token_repository::RefreshTokenRepository,
         },
         organisation::{
-            dao::organisation::{Organisation, OrganisationMemberRole, OrganisationMemberStatus},
+            dao::organisation::{Organisation, OrganisationMemberStatus},
             organisation_repository::{
                 OrganisationFilter, OrganisationMembershipCounts, OrganisationRepository,
             },
@@ -860,7 +860,9 @@ impl AuditLogRepository for InMemoryAuditLogRepository {
             }
             if matches!(
                 entry.action.as_str(),
-                "auth.login_failed" | "auth.refresh_token_reused"
+                "auth.login_failed"
+                    | "auth.refresh_token_reused"
+                    | "auth.refresh_token_transport_mismatch"
             ) {
                 bucket.auth_failed += 1;
             }
@@ -1093,30 +1095,6 @@ impl OrganisationRepository for InMemoryOrganisationRepository {
         });
         items.truncate(usize::try_from(limit).unwrap_or(8));
         Ok(items)
-    }
-
-    async fn backfill_missing_owners(&self) -> Result<u64, AppError> {
-        let mut guard = self.organisations.write().await;
-        let mut repaired = 0u64;
-        for org in guard.values_mut() {
-            let has_active_owner = org.members.iter().any(|m| {
-                m.role == OrganisationMemberRole::Owner
-                    && m.status == OrganisationMemberStatus::Active
-            });
-            if !has_active_owner
-                && let Some((idx, _)) = org
-                    .members
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, m)| m.status == OrganisationMemberStatus::Active)
-                    .min_by_key(|(_, m)| m.joined_at.timestamp_millis())
-            {
-                org.members[idx].role = OrganisationMemberRole::Owner;
-                org.updated_at = BsonDateTime::now();
-                repaired += 1;
-            }
-        }
-        Ok(repaired)
     }
 }
 

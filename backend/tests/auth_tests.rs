@@ -1073,3 +1073,141 @@ async fn webview_origin_allowlist_browser_guards_and_feature_toggle() {
     .await;
     assert_eq!(cleanup_logout.status(), StatusCode::OK);
 }
+
+#[actix_web::test]
+async fn origin_validation_and_duplicate_header_hardening() {
+    // 1. Startup security validation rejects '*' and 'null' origins in both allowlists
+    let mut bad_wildcard = auth_backend::config::Settings::default();
+    bad_wildcard.server.allowed_body_token_origins = vec!["*".to_string()];
+    assert!(bad_wildcard.validate_security().is_err());
+
+    let mut bad_null = auth_backend::config::Settings::default();
+    bad_null.server.allowed_body_token_origins = vec!["Null/".to_string()];
+    assert!(bad_null.validate_security().is_err());
+
+    let mut bad_web_null = auth_backend::config::Settings::default();
+    bad_web_null.server.allowed_origins = vec!["null".to_string()];
+    assert!(bad_web_null.validate_security().is_err());
+
+    // 3. Trailing slash in allowed_body_token_origins still matches CORS preflight & body login
+    let mut state = create_test_app_state().await.unwrap();
+    let mut settings = (*state.settings).clone();
+    settings.server.allowed_body_token_origins = vec!["tauri://localhost/".to_string()];
+    settings.app.reject_browser_origin_for_body_tokens = false;
+    state.settings = std::sync::Arc::new(settings.clone());
+
+    let app = test::init_service(
+        App::new()
+            .wrap(build_cors(&settings))
+            .configure(|cfg| configure_app_services(cfg, web::Data::new(state.clone()))),
+    )
+    .await;
+
+    let preflight = test::call_service(
+        &app,
+        test::TestRequest::default()
+            .method(actix_web::http::Method::OPTIONS)
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", "tauri://localhost"))
+            .insert_header(("Access-Control-Request-Method", "POST"))
+            .insert_header((
+                "Access-Control-Request-Headers",
+                "content-type, x-auth-transport",
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(preflight.status(), StatusCode::OK);
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-origin")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "tauri://localhost"
+    );
+
+    // 4. Even when reject_browser_origin_for_body_tokens=false, Sec-Fetch-Site: same-origin is blocked
+    //    (e.g., reverse-proxy hostname alias), while a non-web-SPA cross-site WebView origin works
+    let same_origin_blocked = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", "https://alias.internal"))
+            .insert_header(("Sec-Fetch-Site", "same-origin"))
+            .insert_header(("X-Auth-Transport", "body"))
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(same_origin_blocked.status(), StatusCode::FORBIDDEN);
+
+    let cross_site_webview_ok = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", "custom-webview://localhost"))
+            .insert_header(("Sec-Fetch-Site", "cross-site"))
+            .insert_header(("X-Auth-Transport", "body"))
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(cross_site_webview_ok.status(), StatusCode::OK);
+
+    // 5. Duplicate X-Auth-Transport, Origin, or Sec-Fetch-Site headers are rejected
+    let dup_transport = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .append_header(("X-Auth-Transport", "cookie"))
+            .append_header(("X-Auth-Transport", "body"))
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(dup_transport.status(), StatusCode::BAD_REQUEST);
+
+    let dup_origin = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .append_header(("Origin", "tauri://localhost"))
+            .append_header(("Origin", "https://evil.example"))
+            .insert_header(("X-Auth-Transport", "body"))
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(dup_origin.status(), StatusCode::FORBIDDEN);
+
+    let dup_sec_fetch = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", "https://alias.internal"))
+            .append_header(("Sec-Fetch-Site", "cross-site"))
+            .append_header(("Sec-Fetch-Site", "same-origin"))
+            .insert_header(("X-Auth-Transport", "body"))
+            .set_json(json!({
+                "email": "superadmin@test.local",
+                "password": "SuperAdmin123!"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(dup_sec_fetch.status(), StatusCode::FORBIDDEN);
+}

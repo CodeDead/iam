@@ -6,7 +6,7 @@ A production-oriented, full-stack Role-Based Access Control (RBAC) platform buil
 
 ## 1. Architecture Overview
 
-The repository contains two independently structured projects communicating exclusively over a versioned JSON REST API (`/api/v1`) with short-lived **EdDSA (Ed25519) JWT access tokens** and **HttpOnly rotating refresh-token cookies** protected by **double-submit CSRF validation**.
+The repository contains two independently structured projects communicating exclusively over a versioned JSON REST API (`/api/v1`) with short-lived **EdDSA (Ed25519) JWT access tokens** and rotating refresh tokens—delivered by default via **HttpOnly cookies protected by double-submit CSRF validation** for browsers, with an opt-in **transport-bound JSON-body flow (`X-Auth-Transport: body`)** for non-browser, desktop, and allowlisted WebView clients.
 
 ```text
 ┌──────────────────────────────┐        HTTPS / JSON + Bearer JWT        ┌────────────────────────────────────┐
@@ -269,6 +269,26 @@ Non-browser clients (native desktop apps, CLIs, mobile apps) and allowlisted Web
 4. **Logout**: Send `POST /api/v1/auth/logout` with `Content-Type: application/json` and `{"refresh_token": "<token>"}`.
 5. **WebView JS Origins**: If calling from a WebView JS context (e.g., `tauri://localhost`, `http://tauri.localhost`, `capacitor://localhost`), add the WebView origin(s) to `ALLOWED_BODY_TOKEN_ORIGINS`. Web browser origins in `FRONTEND_URL` / `ALLOWED_ORIGINS` remain restricted to `HttpOnly` cookie sessions.
 
+```http
+POST /api/v1/auth/login HTTP/1.1
+Content-Type: application/json
+X-Auth-Transport: body
+
+{
+  "email": "admin@example.com",
+  "password": "ChangeMe123!"
+}
+```
+
+```http
+POST /api/v1/auth/refresh HTTP/1.1
+Content-Type: application/json
+
+{
+  "refresh_token": "<opaque_refresh_token>"
+}
+```
+
 Error response example (`403 Forbidden`):
 
 ```json
@@ -299,8 +319,8 @@ Copy [backend/.env.example](backend/.env.example) to `backend/.env` and [fronten
 | `JWT_ACCESS_TOKEN_TTL` / `JWT_REFRESH_TOKEN_TTL` | `900` / `604800` | Token lifetimes in seconds (15 min / 7 days) |
 | `REVOKED_TOKEN_RETENTION_SECONDS` | `3600` | MongoDB TTL retention in seconds for revoked refresh tokens (1 hour; `0` drops/disables `revoked_at_ttl`); rotation also prunes to at most 5 revoked tokens per session family |
 | `JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH` | *(empty in dev)* | Ed25519 PKCS#8/SPKI PEM key paths (both required together; mandatory in production; sign+verify checked at startup) |
-| `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist for the web UI (setting `FRONTEND_URL` replaces the dev default; wildcards forbidden) |
-| `ALLOWED_BODY_TOKEN_ORIGINS` | *(empty)* | Optional comma-separated WebView / desktop origins (e.g., `tauri://localhost,http://tauri.localhost`) permitted to use CORS + `X-Auth-Transport: body` JSON refresh tokens (wildcards forbidden) |
+| `FRONTEND_URL` / `ALLOWED_ORIGINS` | `http://localhost:5173` | Explicit CORS origin allowlist for the web UI (setting `FRONTEND_URL` replaces the dev default; `*` and `null` origins forbidden) |
+| `ALLOWED_BODY_TOKEN_ORIGINS` | *(empty)* | Optional comma-separated WebView / desktop origins (e.g., `tauri://localhost,http://tauri.localhost`) permitted to use CORS + `X-Auth-Transport: body` JSON refresh tokens (`*` and `null` origins forbidden) |
 | `ALLOW_BODY_REFRESH_TOKENS` | `true` | Enables or disables issuing/refreshing JSON-body refresh tokens for non-browser/WebView clients (body logout remains allowed so existing sessions can revoke cleanly) |
 | `REJECT_BROWSER_ORIGIN_FOR_BODY_TOKENS` | `true` | Rejects `Origin` / `Sec-Fetch-Site` browser headers on body-token requests unless the `Origin` is listed in `ALLOWED_BODY_TOKEN_ORIGINS` (origins in `FRONTEND_URL` / `ALLOWED_ORIGINS` are always blocked unless explicitly allowlisted) |
 | `COOKIE_SECURE` / `COOKIE_SAME_SITE` / `COOKIE_DOMAIN` | `false` / `Lax` / *(empty)* | Refresh & CSRF cookie attributes (`COOKIE_SAME_SITE` validated at startup; `None` requires `COOKIE_SECURE=true`) |

@@ -10,9 +10,7 @@ use crate::{
     common::{errors::AppError, pagination::SortOrder},
     database::mongodb::case_insensitive_collation,
     repository::{
-        organisation::dao::organisation::{
-            Organisation, OrganisationMemberRole, OrganisationMemberStatus,
-        },
+        organisation::dao::organisation::{Organisation, OrganisationMemberStatus},
         permission::permission_repository::regex_escape,
     },
 };
@@ -57,7 +55,6 @@ pub trait OrganisationRepository: Send + Sync {
     async fn count_created_since(&self, since: BsonDateTime) -> Result<u64, AppError>;
     async fn membership_counts(&self) -> Result<OrganisationMembershipCounts, AppError>;
     async fn find_largest(&self, limit: u64) -> Result<Vec<Organisation>, AppError>;
-    async fn backfill_missing_owners(&self) -> Result<u64, AppError>;
 }
 
 pub struct MongoOrganisationRepository {
@@ -255,42 +252,5 @@ impl OrganisationRepository for MongoOrganisationRepository {
             }
         }
         Ok(orgs)
-    }
-
-    async fn backfill_missing_owners(&self) -> Result<u64, AppError> {
-        let query = doc! {
-            "members": {
-                "$elemMatch": { "status": OrganisationMemberStatus::Active.as_str() }
-            },
-            "$nor": [
-                {
-                    "members": {
-                        "$elemMatch": {
-                            "role": OrganisationMemberRole::Owner.as_str(),
-                            "status": OrganisationMemberStatus::Active.as_str()
-                        }
-                    }
-                }
-            ]
-        };
-        let cursor = self.collection.find(query).await?;
-        let mut orgs: Vec<Organisation> = cursor.try_collect().await?;
-        let mut repaired = 0u64;
-        for org in &mut orgs {
-            if let Some((idx, _)) = org
-                .members
-                .iter()
-                .enumerate()
-                .filter(|(_, m)| m.status == OrganisationMemberStatus::Active)
-                .min_by_key(|(_, m)| m.joined_at.timestamp_millis())
-            {
-                org.members[idx].role = OrganisationMemberRole::Owner;
-                org.updated_at = BsonDateTime::now();
-                if self.update(org).await.is_ok() {
-                    repaired += 1;
-                }
-            }
-        }
-        Ok(repaired)
     }
 }

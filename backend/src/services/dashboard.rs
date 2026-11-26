@@ -132,7 +132,7 @@ impl DashboardService {
             None
         };
 
-        let (total_roles, roles) = if can_read_roles {
+        let roles = if can_read_roles {
             let total = self.role_repo.count_all().await?;
             let system = self.role_repo.count_by_system(true).await?;
             let custom = total.saturating_sub(system);
@@ -178,20 +178,17 @@ impl DashboardService {
             });
             distribution.truncate(MAX_DASHBOARD_ROLES as usize);
 
-            (
-                Some(total),
-                Some(RoleStats {
-                    total,
-                    system,
-                    custom,
-                    distribution,
-                }),
-            )
+            Some(RoleStats {
+                total,
+                system,
+                custom,
+                distribution,
+            })
         } else {
-            (None, None)
+            None
         };
 
-        let (total_permissions, permissions) = if can_read_permissions {
+        let permissions = if can_read_permissions {
             let total = self.permission_repo.count_all().await?;
             let system = self.permission_repo.count_by_system(true).await?;
             let custom = total.saturating_sub(system);
@@ -203,17 +200,14 @@ impl DashboardService {
                 .map(|(resource, count)| ResourceCountItem { resource, count })
                 .collect();
 
-            (
-                Some(total),
-                Some(PermissionStats {
-                    total,
-                    system,
-                    custom,
-                    by_resource,
-                }),
-            )
+            Some(PermissionStats {
+                total,
+                system,
+                custom,
+                by_resource,
+            })
         } else {
-            (None, None)
+            None
         };
 
         let organisations = if can_read_organisations {
@@ -380,9 +374,7 @@ impl DashboardService {
             my_active_sessions,
             my_organisations,
             users,
-            total_roles,
             roles,
-            total_permissions,
             permissions,
             organisations,
             audit,
