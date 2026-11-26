@@ -3,12 +3,15 @@ environment = "development"
 require_email_verification = false
 permission_cache_ttl_seconds = 30
 audit_log_retention_days = 90
+allow_body_refresh_tokens = true
+reject_browser_origin_for_body_tokens = true
 
 [server]
 host = "127.0.0.1"
 port = 8080
 frontend_url = "http://localhost:5173"
 allowed_origins = ["http://localhost:5173"]
+allowed_body_token_origins = []
 
 [mongodb]
 uri = "mongodb://localhost:27017"

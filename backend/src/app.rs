@@ -222,21 +222,39 @@ impl AppState {
 }
 
 pub fn build_cors(settings: &Settings) -> Cors {
+    let mut allowed_headers = vec![
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        header::ACCEPT,
+        header::HeaderName::from_static("x-csrf-token"),
+        header::HeaderName::from_static("x-request-id"),
+    ];
+    if settings.app.allow_body_refresh_tokens
+        && (!settings.server.allowed_body_token_origins.is_empty()
+            || !settings.app.reject_browser_origin_for_body_tokens)
+    {
+        allowed_headers.push(header::HeaderName::from_static("x-auth-transport"));
+    }
+
     let mut cors = Cors::default()
         .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-        .allowed_headers(vec![
-            header::AUTHORIZATION,
-            header::CONTENT_TYPE,
-            header::ACCEPT,
-            header::HeaderName::from_static("x-csrf-token"),
-            header::HeaderName::from_static("x-request-id"),
-        ])
+        .allowed_headers(allowed_headers)
         .expose_headers(vec![header::HeaderName::from_static("x-request-id")])
         .supports_credentials()
         .max_age(3600);
 
+    let mut seen = std::collections::HashSet::new();
     for origin in &settings.server.allowed_origins {
-        cors = cors.allowed_origin(origin);
+        if seen.insert(origin.clone()) {
+            cors = cors.allowed_origin(origin);
+        }
+    }
+    if settings.app.allow_body_refresh_tokens {
+        for origin in &settings.server.allowed_body_token_origins {
+            if seen.insert(origin.clone()) {
+                cors = cors.allowed_origin(origin);
+            }
+        }
     }
 
     cors

@@ -37,13 +37,32 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Validate, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RefreshTokenRequest {
+    #[serde(default)]
+    #[validate(length(
+        min = 1,
+        max = 512,
+        message = "Refresh token must be 1 to 512 characters"
+    ))]
+    pub refresh_token: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthTokenResponse {
     pub access_token: String,
     pub token_type: String,
     pub expires_in: i64,
     pub expires_at: DateTime<Utc>,
-    pub csrf_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_expires_in: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_expires_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csrf_token: Option<String>,
     pub user: UserResponse,
     pub permissions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

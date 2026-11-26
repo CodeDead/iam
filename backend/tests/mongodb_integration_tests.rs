@@ -7,7 +7,7 @@ use auth_backend::{
     config::Settings,
     database::seed::SYSTEM_PERMISSIONS,
     repository::{
-        auth::dao::refresh_token::RefreshToken,
+        auth::dao::refresh_token::{RefreshToken, RefreshTokenTransport},
         organisation::dao::organisation::{
             Organisation, OrganisationMember, OrganisationMemberRole, OrganisationMemberStatus,
         },
@@ -140,6 +140,7 @@ async fn mongodb_repositories_indexes_and_seeding() {
         user_id: sa.id,
         token_hash: "hash_a".to_string(),
         family_id: "fam_mongo".to_string(),
+        transport: RefreshTokenTransport::Body,
         expires_at: BsonDateTime::from_millis(now.timestamp_millis() + 60_000),
         revoked_at: None,
         replaced_by_hash: None,
@@ -148,6 +149,16 @@ async fn mongodb_repositories_indexes_and_seeding() {
         created_at: now,
     };
     state.refresh_token_repo.create(&token_a).await.unwrap();
+    assert_eq!(
+        state
+            .refresh_token_repo
+            .find_by_hash("hash_a")
+            .await
+            .unwrap()
+            .unwrap()
+            .transport,
+        RefreshTokenTransport::Body
+    );
 
     let token_b = RefreshToken {
         id: ObjectId::new(),

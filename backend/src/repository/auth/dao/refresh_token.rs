@@ -1,5 +1,23 @@
 use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshTokenTransport {
+    #[default]
+    Cookie,
+    Body,
+}
+
+impl RefreshTokenTransport {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cookie => "cookie",
+            Self::Body => "body",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefreshToken {
@@ -8,6 +26,8 @@ pub struct RefreshToken {
     pub user_id: ObjectId,
     pub token_hash: String,
     pub family_id: String,
+    #[serde(default)]
+    pub transport: RefreshTokenTransport,
     pub expires_at: BsonDateTime,
     #[serde(default)]
     pub revoked_at: Option<BsonDateTime>,

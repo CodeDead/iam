@@ -9,6 +9,7 @@ use crate::{
         responses::{ApiResponse, EmptyData, ErrorBody, ErrorResponse},
     },
     repository::{
+        auth::dao::refresh_token::RefreshTokenTransport,
         organisation::dao::organisation::{OrganisationMemberRole, OrganisationMemberStatus},
         user::dao::user::{AccountStatus, UserProfileInfo},
     },
@@ -20,7 +21,9 @@ use crate::{
         },
         dto::{
             audit::AuditLogResponse,
-            auth::{AuthTokenResponse, LoginRequest, MeResponse, RegisterRequest},
+            auth::{
+                AuthTokenResponse, LoginRequest, MeResponse, RefreshTokenRequest, RegisterRequest,
+            },
             dashboard::{
                 AuditStats, DailyActivityPoint, DashboardStatsResponse, OrganisationSizeItem,
                 OrganisationStats, PermissionStats, RecentAuditEvent, ResourceCountItem,
@@ -138,6 +141,8 @@ impl Modify for BearerSecurityAddon {
             UserProfileUpdateDto,
             RegisterRequest,
             LoginRequest,
+            RefreshTokenRequest,
+            RefreshTokenTransport,
             AuthTokenResponse,
             MeResponse,
             DashboardStatsResponse,
